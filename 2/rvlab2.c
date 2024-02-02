@@ -105,9 +105,9 @@ int main(int argc, char *argv[], char *envp[])
         int wstatus;
         pid_t child_pid;
 
-		zeroOutBuf(buf);
 
         child_pid = wait(&wstatus);
+		zeroOutBuf(buf);
         sprintf(buf, "my child (%d) exited with code: %d\n", 
                                 child_pid, WEXITSTATUS(wstatus)); 
         printf("%s",buf);
