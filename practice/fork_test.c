@@ -25,7 +25,7 @@ int main(int argc, char *argv[])
     memset(buffer, 0, BUFFSIZE*sizeof(*buffer));
 
     if (argc != 2) {
-        printf("Usage: ./fork n\n");
+        printf("Usage: %s n\n", argv[0]);
         exit(1);
     }
 
