@@ -1,7 +1,7 @@
 # CMPS 360 Week 02
 # Makefile for code in /examples/week02
 
-all:	sigmask sighand1 sighand2 perror sighand3 readwrite handler_masks readwrite1 readwrite2
+all:	sigmask sighand1 sighand2 perror sighand3 readwrite handler_masks readwrite1 readwrite2 rvlab3
 
 # demonstrates open and fopen
 readwrite: readwrite.c
@@ -37,6 +37,9 @@ sighand3: sighand3.c
 
 handler_masks: handler_masks.c
 	gcc handler_masks.c -Wall -o handler_masks
+
+rvlab3: rvlab3.c
+	gcc rvlab3.c -Wall -o rvlab3
 
 clean:  # start from scratch 
 	rm -f *.o

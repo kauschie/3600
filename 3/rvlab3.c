@@ -4,7 +4,7 @@
 	Assignment: Lab 3
 	Professor: Gorden
 	Class: Operating Systems
- *
+ 
  *          struct sigaction {
  *               void     (*sa_handler)(int);
  *               void     (*sa_sigaction)(int, siginfo_t *, void *);
@@ -23,13 +23,11 @@
 #include <sys/wait.h>
 #include <sys/file.h>
 
-void display_status(int *);
 void sigint_handler(int sig);
 
-/* these need to be global if you want the handler can see them */
-int status;  
-pid_t parent, cpid;
-int fd;
+volatile sig_atomic_t status;  
+volatile pid_t parent, cpid;
+volatile sig_atomic_t fd;
 
 int main(void)
 {
@@ -40,38 +38,35 @@ int main(void)
 
 	sigfillset(&mask);
 	sigprocmask(SIG_BLOCK, &mask, NULL);
-	sigaddset(&mask, SIGUSR1);
+    sigdelset(&mask, SIGUSR1);
 
-
-	/* setup Ctrl-C handler before the fork */ 
 	sa.sa_handler = sigint_handler;
-	// sa.sa_flags = 0; 
+    
+	sa.sa_flags = 0; 
 	sa.sa_flags = SA_RESTART; /* restart system calls if interrupted */ 
+
+    // sets mask for when in signal handler
 	sigfillset(&sa.sa_mask);  /* mask all signals while in the handler */
 	sigprocmask(SIG_BLOCK, &sa.sa_mask, NULL);
 
 
 	/* register the handler  */
-	if (sigaction(SIGINT, &sa, NULL) == -1) {
+	if (sigaction(SIGUSR1, &sa, NULL) == -1) {
 		perror("sigaction");
 		exit(1);
 	}  
-
-	
 
 	parent = getpid(); 
 	cpid = fork();   
 
 	if (cpid == 0) {
 		/* CHILD process */
-		/* put the child in an infinite loop */
-		sigdelset(&sa.sa_mask, SIGUSR1);
 		fd = open("log", O_CREAT | O_WRONLY | O_TRUNC , 0644);
-		sprintf(msg, "Go Bakersfield ");
+		sprintf(msg, "Go Bakersfield");
 		write(fd, msg, strlen(msg));
 
 		sigsuspend(&mask);	// wait with mask that allows sigusr1
-		write(fd, "Roadrunners", 11);
+		write(fd, "Roadrunners\n", 12);
 		close(fd);
 		exit(0);
 
@@ -97,9 +92,8 @@ int main(void)
 void sigint_handler(int sig)
 {
 	char msg[100];
-	sprintf(msg, "(got the signal)\n");
+	sprintf(msg, " (got the signal) ");
 	write(fd, msg, strlen(msg));
-
 }
 
 

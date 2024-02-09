@@ -1,0 +1,11 @@
+rt_sigprocmask(SIG_BLOCK, ~[RTMIN RT_1], NULL, 8) = 0
+rt_sigprocmask(SIG_BLOCK, ~[RTMIN RT_1], NULL, 8) = 0
+rt_sigaction(SIGUSR1, {sa_handler=0x5564ee14c47b, sa_mask=~[RTMIN RT_1], sa_flags=SA_RESTORER|SA_RESTART, sa_restorer=0x7ffbd599c050}, NULL, 8) = 0
+strace: Process 1998670 attached
+[pid 1998669] kill(1998670, SIGTERM)    = 0
+[pid 1998669] kill(1998670, SIGUSR1)    = 0
+[pid 1998670] rt_sigsuspend(~[USR1 RTMIN RT_1], 8) = ? ERESTARTNOHAND (To be restarted if no handler)
+[pid 1998670] --- SIGUSR1 {si_signo=SIGUSR1, si_code=SI_USER, si_pid=1998669, si_uid=11268} ---
+[pid 1998670] rt_sigreturn({mask=~[KILL STOP RTMIN RT_1]}) = -1 EINTR (Interrupted system call)
+[pid 1998670] +++ exited with 0 +++
++++ exited with 0 +++
