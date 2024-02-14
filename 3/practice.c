@@ -30,17 +30,17 @@ int main(void)
     sigfillset(&mask);
     sigprocmask(SIG_BLOCK, &mask, NULL);
 
-    sa1.sa_handler = usr1_handler;
+    /* set handler functions */
+    sa1.sa_handler = usr1_handler; 
     sa2.sa_handler = usr2_handler;
     sa3.sa_handler = term_handler;
 
+    /* set flags */
     sa1.sa_flags = 0;
     sa2.sa_flags = 0;
     sa3.sa_flags = 0;
 
-    //sigfillset(&sa1.sa_mask);
-    //sigfillset(&sa2.sa_mask);
-    //sigfillset(&sa3.sa_mask);
+    /* add signals that you want allowed while in the handler*/
     sigemptyset(&sa1.sa_mask);
     sigaddset(&sa1.sa_mask, SIGUSR2);
 
@@ -49,21 +49,21 @@ int main(void)
 
     sigfillset(&sa3.sa_mask);
 
+    /* make calls to associate handler with sigaction struct*/
     if (sigaction(SIGUSR1, &sa1, NULL) == -1) {
         perror("sigaction SIGUSR1");
         exit(1);
     }
-
     if (sigaction(SIGUSR2, &sa2, NULL) == -1) {
         perror("sigaction SIGUSR2");
         exit(1);
     }
-
     if (sigaction(SIGTERM, &sa3, NULL) == -1) {
         perror("sigaction SIGTERM");
         exit(1);
     }
 
+    // fork, get cpid, and check for errors
     if ((cpid = fork()) < 0) {
         perror("fork()");
         exit(1);
@@ -87,7 +87,10 @@ int main(void)
         exit(0);
     } else {
     // parent
-        //kill(cpid, SIGTERM);
+        // signals don't go away and they stay queued, so the lab format was 
+        // messing it up
+        
+//        kill(cpid, SIGTERM);
         write(1, "sending sigusr1\n", 17);
         kill(cpid, SIGUSR1);
         sleep(2);
@@ -115,21 +118,23 @@ int main(void)
 
 void usr1_handler(int sig)
 {
-    struct sigaction sa2;
     char buf1[100];
     sprintf(buf1, " (got the signal and in usr1_handler) ");
     write(fd, buf1, strlen(buf1));
-    write(1, "waiting for user2 signal.  ", 29);
+    write(1, "waiting for user2 signal.  ", 28);
 
+    // create mask to suspend on 
     sigset_t mask;
     sigfillset(&mask); // ignore all signals
     sigdelset(&mask, SIGUSR2); // except SIGUSR2
-    sigprocmask(SIG_BLOCK, &mask, NULL);
+    //sigprocmask(SIG_BLOCK, &mask, NULL); // tell it to block all those sigs
 
     sprintf(buf1, " suspending... ");
     write(1, buf1, strlen(buf1));
 
-    sigsuspend(&mask);
+    sigsuspend(&mask); // suspend -- tthis will go to usr2_handler but
+                       // the stack will unwind and come back here after
+                       // usr1_handler -> usr2_handler -> term_handler -> usr2_handler -> usr1_handler
 
     sprintf(buf1, " done suspending in usr1_handler... ");
     write(1, buf1, strlen(buf1));
@@ -138,7 +143,6 @@ void usr1_handler(int sig)
 
 void usr2_handler(int sig)
 {
-    struct sigaction sa3;
     char buf1[100];
     sprintf(buf1, " (got the signal and in usr2_handler) ");
     write(fd, buf1, strlen(buf1));
@@ -148,7 +152,7 @@ void usr2_handler(int sig)
     sigset_t mask;
     sigfillset(&mask);
     sigdelset(&mask, SIGTERM);
-    sigprocmask(SIG_BLOCK, &mask, NULL);
+    //sigprocmask(SIG_BLOCK, &mask, NULL);
 
     sprintf(buf1, " suspending... ");
     write(1, buf1, strlen(buf1));
@@ -162,6 +166,7 @@ void usr2_handler(int sig)
 void term_handler(int sig)
 {
     char buf1[100];
-    sprintf(buf1, " (got the signal and in term_handler) ", 29);
+    sprintf(buf1, " (got the signal and in term_handler) ");
     write(fd, buf1, strlen(buf1));
+    // returns back to usr2_handler where it came from when the signal was issued
 }
