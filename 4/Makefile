@@ -1,6 +1,9 @@
 # Makefile for week-4
 
-all: shared_mem shm_io sigset sigset2 strings rvlab4
+all: shared_mem shm_io sigset sigset2 strings rvlab4 xwin89
+
+xwin89: xwin89.c
+	gcc xwin89.c -Wall -lX11 -oxwin89
 
 shared_mem: shared_mem.c
 	gcc shared_mem.c -Wall -oshared_mem
@@ -24,5 +27,5 @@ clean:
 	rm -f shared_mem shm_io sigset sigset2 strings
 
 run:
-	./rvlab4 < myinput; echo "PRINTING LOG\n"; cat log;
-	./rvlab4; echo "PRINTING LOG\n"; cat log;
+	./rvlab4 < myinput; echo "PRINTING LOG\n"; cat log; echo "DONE PRINTING LOG\n";
+	./rvlab4; echo "PRINTING LOG\n"; cat log; echo "DONE PRINTING LOG\n";
