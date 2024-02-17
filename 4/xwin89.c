@@ -1,38 +1,10 @@
 /*
  *
- 
     Name: Michael Kausch
-
- cs3600 Spring 2022
- original author:  Gordon Griesel
-            date:  Jan 24, 2022
-         purpose:  C program for students to practice their C programming
-		           over the Winter break. Also, introduce students to the
-                   X Window System. We will use the X Window protocol or
-                   API to generate output in some of our lab and homework
-                   assignments.
-
- Instructions:
-
-      1. If you make changes to this file, put your name at the top of
-	     the file. Use one C style multi-line comment to hold your full
-		 name. Do not remove the original author's name from this or 
-		 other source files please.
-
-      2. Build and run this program by using the provided Makefile.
-
-	     At the command-line enter make.
-		 Run the program by entering ./a.out
-		 Quit the program by pressing Esc.
-
-         The compile line will look like this:
-            gcc xwin89.c -Wall -Wextra -Werror -pedantic -ansi -lX11
-
-		 To run this program on the Odin server, you will have to log in
-		 using the -YC option. Example: ssh myname@odin.cs.csub.edu -YC
-
-      3. See the assignment page associated with this program for more
-	     instructions.
+    Assignment: Class assignment - fork window call main
+    date: 2/16/24
+    professor: Gordon
+    class: Operating Systems cmps3600
 
 */
 
@@ -42,6 +14,8 @@
 #include <X11/Xlib.h>
 #include <X11/keysym.h>
 #include <unistd.h>
+#include <time.h>
+
 
 //#define DEBUG
 
@@ -57,6 +31,7 @@ struct Global {
     int bwidth;
     int bheight;
     int winner;
+    int xdirection, ydirection;
 } g;
 
 void x11_cleanup_xwindows(void);
@@ -119,13 +94,15 @@ void x11_init_xwindows(void)
 {
 	int scr;
 
+    srand(time(NULL));
+
 	if (!(g.dpy = XOpenDisplay(NULL))) {
 		fprintf(stderr, "ERROR: could not open display!\n");
 		exit(EXIT_FAILURE);
 	}
 	scr = DefaultScreen(g.dpy);
 	g.xres = 400;
-	g.yres = 200;
+	g.yres = 250;
 	g.win = XCreateSimpleWindow(g.dpy, RootWindow(g.dpy, scr), 1, 1,
 							g.xres, g.yres, 0, 0x00FFFFFF, 0x00000000);
 
@@ -133,10 +110,12 @@ void x11_init_xwindows(void)
 	g.gc = XCreateGC(g.dpy, g.win, 0, NULL);
     g.bwidth = 50;
     g.bheight = 50;
-    g.bx = 150;
-    g.by = 150;
+    g.bx = rand() % (g.xres-g.bwidth);
+    g.by = rand() % (g.yres-g.bheight);
     g.cur_color = 0x00FFC72C;
     g.winner = 0;
+    g.xdirection = (rand() % 2 == 0) ? 1 : -1;
+    g.ydirection = (rand() % 2 == 0) ? 1 : -1;
 	XMapWindow(g.dpy, g.win);
 	XSelectInput(g.dpy, g.win, ExposureMask | StructureNotifyMask |
 								PointerMotionMask | ButtonPressMask |
@@ -202,14 +181,6 @@ int check_keys(XEvent *e)
                         color -= 1;
                         g.cur_color = 0x00003594;
                         break;
-                        /*
-                    case 2:
-                        XSetForeground(g.dpy, g.gc, 0x00ff0077); 
-                        XFillRectangle(g.dpy, g.win, g.gc, 0, 0, g.xres, g.yres);
-                        color = 0;
-                        g.cur_color = 0x00ff0077;
-                        break;
-                        */
                 }
 				break;
 			case XK_Escape:
@@ -219,6 +190,7 @@ int check_keys(XEvent *e)
                 cpid = fork();
                 if (cpid == 0) {
                     main(1, myargv, myenvp);
+                    g.winner = 0;
                     exit(0);
                 }   
                 break;
@@ -233,6 +205,7 @@ void render(void)
 
         char buf2[128];
         sprintf(buf2, "mouse[x]: %d | mouse[y]: %d", g.mx, g.my);
+        char buf3[] = "DVD";
 
     if (!g.winner) {
         
@@ -248,6 +221,8 @@ void render(void)
         XSetForeground(g.dpy, g.gc, 0x00ffffff);
         XFillRectangle(g.dpy, g.win, g.gc, g.bx, g.by, g.bwidth, g.bheight);
 
+        XSetForeground(g.dpy, g.gc, 0x00ff0000);
+        XDrawString(g.dpy, g.win, g.gc, (g.bx + (g.bwidth/2) - 10), (g.by + (g.bheight/2) + 5), buf3, strlen(buf3));
     } else {
 
         char buf[] = "WINNER!";
@@ -256,34 +231,35 @@ void render(void)
         XFillRectangle(g.dpy, g.win, g.gc, 0, 0, g.xres, g.yres);
 
         XSetForeground(g.dpy, g.gc, 0x00000000);
-        XDrawString(g.dpy, g.win, g.gc, 40, 40, buf, strlen(buf));
+        XDrawString(g.dpy, g.win, g.gc, (g.xres/2), 40, buf, strlen(buf));
         XDrawString(g.dpy, g.win, g.gc, 80, 80, buf2, strlen(buf2));
 
         XSetForeground(g.dpy, g.gc, 0x00000000);
         XFillRectangle(g.dpy, g.win, g.gc, g.bx, g.by, g.bwidth, g.bheight);
 
+        XSetForeground(g.dpy, g.gc, 0x00ffffff);
+        XDrawString(g.dpy, g.win, g.gc, (g.bx + (g.bwidth/2) - 10), (g.by + (g.bheight/2) + 5), buf3, strlen(buf3));
     }
 
 }
 
 void physics(void)
 {
-    static int xdirection = 1;
-    static int ydirection = 1;
+
 
     if (!g.winner)
         g.winner = check_winner();
 
 
     if (!g.winner) {
-        g.bx += 2 * xdirection;
-        g.by += 2 * ydirection;
+        g.bx += 2 * g.xdirection;
+        g.by += 2 * g.ydirection;
 
         if (g.bx > (g.xres-g.bwidth) || g.bx < 0) {
-            xdirection *= -1;
+            g.xdirection *= -1;
         }
         if (g.by > (g.yres-g.bheight) || g.by < 0) {
-            ydirection *= -1;
+            g.ydirection *= -1;
         }    
 
     }
@@ -295,7 +271,7 @@ void physics(void)
 int check_winner(void)
 {
 
-    int epsilon = 1;
+    int epsilon = 0;
     int xtouch = (g.xres - (g.bx + g.bwidth) <= epsilon) || ((g.bx) <= epsilon);
     int ytouch = (g.yres - (g.by + g.bheight) <= epsilon) || ((g.by) <= epsilon);
 
