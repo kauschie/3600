@@ -43,8 +43,6 @@
 #include <X11/keysym.h>
 #include <unistd.h>
 
-//#define DEBUG
-
 struct Global {
 	Display *dpy;
 	Window win;
@@ -295,30 +293,13 @@ void physics(void)
 int check_winner(void)
 {
 
-    int epsilon = 1;
-    int xtouch = (g.xres - (g.bx + g.bwidth) <= epsilon) || ((g.bx) <= epsilon);
-    int ytouch = (g.yres - (g.by + g.bheight) <= epsilon) || ((g.by) <= epsilon);
+    float epsilon = 0.0005;
+    int xtouch = (g.xres - (g.bx + g.bwidth) < epsilon) || ((g.bx - g.bwidth) < epsilon);
+    int ytouch = (g.yres - (g.by + g.bheight) < epsilon) || ((g.by - g.bheight) < epsilon);
 
-#ifdef DEBUG
-    printf("(g.xres(%d) - (g.bx(%d) + g.bwidth(%d)) (*%d*) < epsilon(%d) = %d               \n", 
-            g.xres, g.bx, g.bwidth, g.xres - (g.bx + g.bwidth), epsilon, 
-            (g.xres - (g.bx + g.bwidth) < epsilon)); 
+    if (!g.winner)
+        printf("xtouch: %d, ytouch %d             \r", xtouch, ytouch);
 
-    printf("g.bx(%d) - g.bwidth(%d) (*%d*) < epsilon(%d) = %d               \n", 
-            g.bx, g.bwidth, (g.bx - g.bwidth), epsilon, 
-            (g.bx + g.bwidth) < epsilon); 
-
-    printf("g.yres(%d) - (g.by(%d) + g.bheight(%d) (*%d*) < epsilon(%d) = %d               \n", 
-            g.yres, g.by, g.bheight, g.yres - (g.by + g.bheight), epsilon, 
-            (g.yres - (g.by + g.bheight) < epsilon)); 
-
-    printf("g.by(%d) < epsilon(%d) = %d               \n", 
-            g.by, epsilon, (g.by)  < epsilon); 
-
-    //if (!g.winner)
-        printf("xtouch: %d, ytouch %d             \n", xtouch, ytouch);
-#endif
-
-    return (xtouch && ytouch);
+    return xtouch && ytouch;
 
 }
