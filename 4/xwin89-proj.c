@@ -633,6 +633,9 @@ void physics(void)
             g.shr->dir.x *= -1;
         } else if (ytouch) {
             // check if can go to other box
+            
+
+            // else 
             g.shr->dir.y *= -1;
         } /*   else {
             // some events that occur in the middle of the window
