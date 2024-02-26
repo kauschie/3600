@@ -26,6 +26,7 @@
 //#define DEBUG
 //#define USE_MSQ
 //#define USE_SEM
+//#define GEOM_DEBUG
 #define USE_SHM
 
 enum CollisionType { LEFT=1, RIGHT=2, TOP=3, BOTTOM=4};
@@ -223,9 +224,12 @@ void checkMSG(void)
         // child
         if (msgrcv(g.mqid, &mymsg, sizeof(mymsg), 
                     (long)PARENT, IPC_NOWAIT) > 0) {// on success
+#ifdef DEBUG
             printf("Got a message in the parent\n");
             printf("OLD box.x: %d box.y: %d dir.x: %d dir.y: %d\n",
                         g.bx, g.by, g.xdirection, g.ydirection);
+            fflush(stdout);
+#endif
             g.xdirection = mymsg.w.dir.x;
             g.ydirection = mymsg.w.dir.y;
             //struct Vec2 BoxScreen = translateCoords(mymsg.w.boxScreen);
@@ -292,7 +296,10 @@ void x11_cleanup_xwindows(void)
 
 void setupMQ(void)
 {
+#ifdef DEBUG
     printf("Setting up MQ\n");
+    fflush(stdout);
+#endif
     char pathname[128];
     getcwd(pathname, 128);
     strcat(pathname, "/foo");   /* make sure file foo is in your directory*/
@@ -309,13 +316,20 @@ void setupMQ(void)
 
 void teardownMQ(void)
 {
+#ifdef DEBUG
     printf("Tearing Down MQ\n");
+    fflush(stdout);
+#endif
     msgctl(g.mqid, IPC_RMID, 0);
 }
 
 void setupSEM(void)
 {
+#ifdef DEBUG
     printf("Setting up SEM\n");
+    fflush(stdout);
+#endif
+    
     char pathname[128];
     getcwd(pathname, 128);
     strcat(pathname, "/foo");   /* make sure file foo is in your directory*/
@@ -342,19 +356,23 @@ void setupSEM(void)
 }
 void teardownSEM(void)
 {
+#ifdef DEBUG
     printf("Tearing Down SEM\n");
+    fflush(stdout);
+#endif
     semctl(g.semid, 0, IPC_RMID);
 }
 
 void setupSHM(void)
 {
+#ifdef DEBUG
     printf("Setting up SHM\n");
+    fflush(stdout);
+#endif
     char pathname[128];
     getcwd(pathname, 128);
     strcat(pathname, "/foo");   /* make sure file foo is in your directory*/
-    //int g.mqid;
     key_t ipckey = ftok(pathname, 69);
-    //g.semid = semget(ipckey, 1, 0666 | IPC_CREAT);
     
     if ((g.shmid = shmget(ipckey, sizeof(struct Shared), IPC_CREAT | 0666)) == -1){
         printf("Error - %s\n", strerror(errno));
@@ -368,15 +386,15 @@ void setupSHM(void)
     g.shr->dim.y = 80;
     g.shr->pos.x = rand() % (g.xres-g.shr->dim.x);
     g.shr->pos.y = rand() % (g.yres-g.shr->dim.y);
-    //g.
 
-    
+#ifdef DEBUG
     if (g.hasSpawned == 0 || g.cpid > 0) {
         printf("creating thread for parent\n");
-
     } else {
         printf("creating thread for child\n");
     }
+    fflush(stdout);
+#endif
     
     g.runThread = 1;
     pthread_create(&g.tid, NULL, (void*)getWindowCoords, NULL);
@@ -385,7 +403,10 @@ void setupSHM(void)
 
 void teardownSHM(void)
 {
+#ifdef DEBUG
     printf("Tearing Down SHM\n");
+    fflush(stdout);
+#endif
     shmdt(g.shr); 
 
 }
@@ -401,8 +422,8 @@ void x11_init_xwindows(void)
 		exit(EXIT_FAILURE);
 	}
 	scr = DefaultScreen(g.dpy);
-	g.xres = 400;
-	g.yres = 250;
+	g.xres = 600;
+	g.yres = 400;
 	g.win = XCreateSimpleWindow(g.dpy, RootWindow(g.dpy, scr), 1, 1,
 							g.xres, g.yres, 0, 0x00FFFFFF, 0x00000000);
 
@@ -575,9 +596,12 @@ void render(void)
     char buf[128];
     char buf2[128];
     char buf3[10];
+#if GEOM_DEBUG 
     char buf4[128];
     char buf5[128];
     char buf6[128];
+#endif
+    char buf7[128] = "Press 1 to launch the ball";
     int color1 = 0x00ffc72c;
     int color2 = 0x00003594;
     //int wx =0, wy=0;
@@ -586,27 +610,32 @@ void render(void)
         // parent or hasn't spawned a child
 
             //strcpy(buf, "Parent Window");
-            sprintf(buf, "Parent Window.. cpid: %d g.hasSpawned: %d", g.cpid, g.hasSpawned);
+            sprintf(buf, "Parent Window.. cpid: %d", g.cpid);
             strcpy(buf2, "Press 'c' for a child window");
             strcpy(buf3, "Parent");
             g.cur_color = color1;
             //sprintf(buf2, "mouse[x]: %d | mouse[y]: %d", g.mx, g.my);
+#if GEOM_DEBUG 
             sprintf(buf4, "window[x]: %d | window[y]: %d", 
                                 g.shr->pWinPos.x, g.shr->pWinPos.y);
-            sprintf(buf5, "hasBall: %d", (g.shr->hasBall == CHILD ? 1 : 0));
+            sprintf(buf5, "hasBall: %d", (g.shr->hasBall == PARENT ? 1 : 0));
+#endif
 
     } else if (g.cpid == 0) {
         // child
             //strcpy(buf, "Child Window");
-            sprintf(buf, "Child Window.. cpid: %d g.hasSpawned: %d", g.cpid, g.hasSpawned);
+            sprintf(buf, "Child Window.. cpid: %d", g.cpid);
             strcpy(buf2, "Press 'esc' to close");
             strcpy(buf3, "Child");
             g.cur_color = color2;
+#if GEOM_DEBUG 
             sprintf(buf4, "window[x]: %d | window[y]: %d", 
                                 g.shr->cWinPos.x, g.shr->cWinPos.y);
-            sprintf(buf5, "hasBall: %d", (g.shr->hasBall == PARENT ? 1 : 0));
+            sprintf(buf5, "hasBall: %d", (g.shr->hasBall == CHILD ? 1 : 0));
+#endif
 
     }
+
 
     XSetForeground(g.dpy, g.gc, g.cur_color); 
     XFillRectangle(g.dpy, g.win, g.gc, 0, 0, g.xres, g.yres);
@@ -619,13 +648,24 @@ void render(void)
     int c = ((g.cur_color == color1) ? color2 : color1);
     XSetForeground(g.dpy, g.gc, c);
 
-    //x11_setFont(14);
+    x11_setFont(14);
     //void x11_setFont(unsigned int idx)
     // draw prompts and screen info
     XDrawString(g.dpy, g.win, g.gc, 80, 40, buf, strlen(buf));
     XDrawString(g.dpy, g.win, g.gc, 80, 80, buf2, strlen(buf2));
+
+    if (g.shr->hasBall != PARENT && g.shr->hasBall != CHILD) {
+        XDrawString(g.dpy, g.win, g.gc, g.xres/2 - 180, g.yres/2, buf7, strlen(buf7));
+    } else {
+        sprintf(buf7, "Press 2 to reset the ball");
+        XDrawString(g.dpy, g.win, g.gc, g.xres/2 - 180, g.yres/2, buf7, strlen(buf7));
+        
+    }
+
+#if GEOM_DEBUG 
     XDrawString(g.dpy, g.win, g.gc, 80, 120, buf4, strlen(buf4));
     XDrawString(g.dpy, g.win, g.gc, 80, 160, buf5, strlen(buf5));
+#endif
     
     if (((g.cpid == 0) && (g.shr->hasBall == CHILD))
             || ((g.cpid != 0) && (g.shr->hasBall == PARENT))) {
@@ -637,9 +677,11 @@ void render(void)
         XSetForeground(g.dpy, g.gc, g.cur_color);
         XDrawString(g.dpy, g.win, g.gc, (g.shr->pos.x + (g.shr->dim.x/2) - 24), (g.shr->pos.y + (g.shr->dim.y/2) + 5), buf3, strlen(buf3));
 
+#if GEOM_DEBUG 
         XSetForeground(g.dpy, g.gc, c);
         sprintf(buf6, "ball[x]: %d ball[y]: %d\n", g.shr->pos.x, g.shr->pos.y);
         XDrawString(g.dpy, g.win, g.gc, 80, 200, buf6, strlen(buf6));
+#endif
         
     }
 
@@ -647,14 +689,13 @@ void render(void)
 
 void physics(void)
 {
-    //if (g.hasBall) {
 
+    // if parent window and parent has ball
+    // or child window and child has ball
     if (((g.hasSpawned == 0 || g.cpid > 0) && (g.shr->hasBall == PARENT))
-    //if (((g.cpid == 0) && (g.shr->hasBall == CHILD))
             || ((g.cpid == 0) && (g.shr->hasBall == CHILD))) {
 
         if (g.winner) {
-            //g.winner = xtouch && ytouch;
             return;
         }
 
@@ -670,8 +711,10 @@ void physics(void)
             // check if can go to other box
             int b = checkExternalCollision((enum CollisionType)xtouch);
             if (b == 1) {
-                printf("There was an external collision\n");
+#ifdef GEOM_DEBUG
+                printf("There was an external collision with left/right wall\n");
                 fflush(stdout);
+#endif
                 g.shr->hasBall = (g.shr->hasBall == CHILD ? PARENT : CHILD);
 
             } else {
@@ -683,18 +726,16 @@ void physics(void)
             
             int b = checkExternalCollision((enum CollisionType)ytouch);
             if (b == 1) {
+#ifdef GEOM_DEBUG
                 printf("There was a collision with the top/bottom wall");
                 fflush(stdout);
+#endif
                 g.shr->hasBall = (g.shr->hasBall == CHILD ? PARENT : CHILD);
             } else {
                 g.shr->dir.y *= -1;
 
             }
             
-            //b;
-
-            // else 
-
 
         } /*   else {
             // some events that occur in the middle of the window
@@ -785,7 +826,8 @@ void x11_setFont(unsigned int idx)
     XSetFont(g.dpy, g.gc, f);
 }
 
-
+// constantly gets window coords and writes only to the 
+// shared memory space for its process
 void * getWindowCoords(void* arg)
 {
     
@@ -797,7 +839,7 @@ void * getWindowCoords(void* arg)
     
     if (g.hasSpawned == 0 || g.cpid > 0) {
         // parent
-        printf("In getWindowCoords from parent\n");
+        //printf("In getWindowCoords from parent\n");
 
         while(g.runThread == 1) {
 
@@ -812,7 +854,7 @@ void * getWindowCoords(void* arg)
     } else {
         // parent
 
-        printf("In getWindowCoords from child\n");
+        //printf("In getWindowCoords from child\n");
         while(g.runThread == 1) {
 
             XTranslateCoordinates(g.dpy, g.win, root, xwa.x, xwa.y, 
@@ -827,20 +869,19 @@ void * getWindowCoords(void* arg)
 }
 
 int checkExternalCollision(enum CollisionType ct) {
+
     struct Vec2 pass_pos, rec_pos, boxScreen_pos;
     int slope;
-    char buf[100];
-
-    // assign vars depending on perspective
+    //char buf[100];
    
     if (g.hasSpawned == 0 || g.cpid > 0) {
-        // parent
-        sprintf(buf, "Checking collision in parent\n");
+        // prent
+        //sprintf(buf, "Checking collision in parent\n");
         rec_pos = g.shr->cWinPos;
         pass_pos = g.shr->pWinPos;
     } else {
         //child
-        sprintf(buf, "Checking collision in child\n");
+        //sprintf(buf, "Checking collision in child\n");
         pass_pos = g.shr->cWinPos;
         rec_pos = g.shr->pWinPos;
     }
@@ -848,57 +889,55 @@ int checkExternalCollision(enum CollisionType ct) {
     boxScreen_pos.x = pass_pos.x + g.shr->pos.x;
     boxScreen_pos.y = pass_pos.y + g.shr->pos.y;
     
-    printf("%s", buf);
+#ifdef GEOM_DEBUG
+//    printf("%s", buf);
     printf("passer[x]: %d, passer[y]: %d\n", pass_pos.x, pass_pos.y);
     printf("receiver[x]: %d, receiver[y]: %d\n", rec_pos.x, rec_pos.y);
-    //printf("Press return...\n");
     fflush(stdout);
+#endif
     
-    //getchar();
     int dist;
     int y;
     int xscreen, yscreen;
+    // collision 2 to be used for checking collision with the other window walls during transition
+    // not implemented yet
     int isCollision1 = 0, isCollision2 = 0;
     int begin, end;
-    // change in y over change in x
-    //
 
     if (ct == LEFT) {
-
+#ifdef GEOM_DEBUG
         printf("**checking external collision from left wall**\n");
+        fflush(stdout);
+#endif
         if (pass_pos.x >= rec_pos.x) {
 
-            /*
-            if ((rec_pos.y <= boxScreen_pos.y) && (g.shr->dir.y > 0))
-                return 0;
-            if ((rec_pos.y >= boxScreen_pos.y) && (g.shr->dir.y < 0))
-                return 0;
-                */
-
-            fflush(stdout);
             dist = boxScreen_pos.x - (rec_pos.x + g.xres);
-
-
             slope = (int)(g.shr->dir.y / abs(g.shr->dir.x));
-            printf("\tdist: %d  | slope: %d\n", dist, slope);
-            fflush(stdout);
             y = dist * slope;
             yscreen = boxScreen_pos.y + y;
             xscreen = rec_pos.x + g.xres - g.shr->dim.x - 1;
+
+            // check if box is on wrong side of the screen
             if (xscreen > boxScreen_pos.x) return 0;
             
-            printf("\ty: %d  | yscreen: %d\n", y, yscreen);
-            fflush(stdout);
             begin = (yscreen >= rec_pos.y); 
             end = (yscreen <= (rec_pos.y + g.yres - g.shr->dim.y));
 
             isCollision1 = begin && end;
+
+#ifdef GEOM_DEBUG
+            printf("\tdist: %d  | slope: %d\n", dist, slope);
+            printf("\ty: %d  | yscreen: %d\n", y, yscreen);
             printf("\tbegin: %d && end: %d = %d\n", begin, end, isCollision1);
             fflush(stdout);
+#endif
 
             if (isCollision1 == 1) {
+
+#ifdef GEOM_DEBUG
                 printf("**\t\tCollision Found**\n");
                 fflush(stdout);
+#endif
                 g.shr->pos.x = xscreen - rec_pos.x;
                 g.shr->pos.y = yscreen - rec_pos.y;
             }
@@ -909,7 +948,10 @@ int checkExternalCollision(enum CollisionType ct) {
         // return if other box is too far left
         //    printf("checking right external collision\n");
 
+#ifdef GEOM_DEBUG
         printf("**checking external collision from right wall**\n");
+        fflush(stdout);
+#endif
         if (pass_pos.x <= rec_pos.x) {
             /*
             if ((rec_pos.y <= boxScreen_pos.y) && (g.shr->dir.y > 0))
@@ -918,31 +960,32 @@ int checkExternalCollision(enum CollisionType ct) {
                 return 0;
                 */
 
-            fflush(stdout);
             dist = (rec_pos.x - boxScreen_pos.x - g.shr->dim.x);
-
-
             slope = (int)(g.shr->dir.y / abs(g.shr->dir.x));
-            printf("\tdist: %d  | slope: %d\n", dist, slope);
-            fflush(stdout);
             y = dist * slope;
             yscreen = boxScreen_pos.y + y;
-
             xscreen = rec_pos.x +1;
+
+
             if (xscreen < boxScreen_pos.x) return 0;
 
-            printf("\ty: %d  | yscreen: %d\n", y, yscreen);
-            fflush(stdout);
             begin = (yscreen >= rec_pos.y); 
             end = (yscreen <= (rec_pos.y + g.yres - g.shr->dim.y));
 
             isCollision1 = begin && end;
+
+#ifdef GEOM_DEBUG
+            printf("\tdist: %d  | slope: %d\n", dist, slope);
+            printf("\ty: %d  | yscreen: %d\n", y, yscreen);
             printf("\tbegin: %d && end: %d = %d\n", begin, end, isCollision1);
             fflush(stdout);
+#endif
 
             if (isCollision1 == 1) {
+#ifdef GEOM_DEBUG
                 printf("**\t\tCollision Found**\n");
                 fflush(stdout);
+#endif
                 g.shr->pos.x = 1;
                 g.shr->pos.y = yscreen - rec_pos.y;
             }
@@ -951,39 +994,37 @@ int checkExternalCollision(enum CollisionType ct) {
 
     } else if (ct == TOP){
 
+#ifdef GEOM_DEBUG
         printf("**checking external collision from Top wall**\n");
+        fflush(stdout);
+#endif
         if (pass_pos.y >= rec_pos.y) {
-            /*
-            if ((rec_pos.x <= boxScreen_pos.x) && (g.shr->dir.x > 0))
-                return 0;
-            if ((rec_pos.x >= boxScreen_pos.x) && (g.shr->dir.x < 0))
-                return 0;
-                */
 
-            fflush(stdout);
             dist = boxScreen_pos.y - (rec_pos.y + g.yres);
-
             slope = (int)(g.shr->dir.x / abs(g.shr->dir.y)); //dx/dy for this one
-            printf("\tdist: %d  | slope: %d\n", dist, slope);
-            fflush(stdout);
             y = dist * slope;
             yscreen = boxScreen_pos.x + y;
-
             xscreen = rec_pos.y + g.yres - g.shr->dim.y;
+
             if (xscreen > boxScreen_pos.y) return 0;
 
-            printf("\ty: %d  | yscreen: %d\n", y, yscreen);
-            fflush(stdout);
             begin = (yscreen >= rec_pos.x); 
             end = (yscreen <= (rec_pos.x + g.xres - g.shr->dim.x));
 
             isCollision1 = begin && end;
+
+#ifdef GEOM_DEBUG
+            printf("\tdist: %d  | slope: %d\n", dist, slope);
+            printf("\ty: %d  | yscreen: %d\n", y, yscreen);
             printf("\tbegin: %d && end: %d = %d\n", begin, end, isCollision1);
             fflush(stdout);
+#endif
 
             if (isCollision1 == 1) {
+#ifdef GEOM_DEBUG
                 printf("**\t\tCollision Found going out the top**\n");
                 fflush(stdout);
+#endif
                 g.shr->pos.x = yscreen - rec_pos.x;
                 g.shr->pos.y = xscreen - rec_pos.y - 1;
             }
@@ -993,37 +1034,37 @@ int checkExternalCollision(enum CollisionType ct) {
 
     } else if (ct == BOTTOM){
 
+#ifdef GEOM_DEBUG
+        printf("**checking external collision from Bottom wall**\n");
+        fflush(stdout);
+#endif
         if (pass_pos.y <= rec_pos.y) {
-            /*
-            if ((rec_pos.x <= boxScreen_pos.x) && (g.shr->dir.x > 0))
-                return 0;
-            if ((rec_pos.x >= boxScreen_pos.x) && (g.shr->dir.x < 0))
-                return 0;
-                */
 
-            fflush(stdout);
             dist = rec_pos.y - boxScreen_pos.y - g.shr->dim.y;
             slope = (int)(g.shr->dir.x / abs(g.shr->dir.y)); //dx/dy for this one
-            printf("\tdist: %d  | slope: %d\n", dist, slope);
-            fflush(stdout);
             y = dist * slope;
             yscreen = boxScreen_pos.x + y;
-
             xscreen = rec_pos.y;
+
             if (xscreen < boxScreen_pos.y) return 0;
 
-            printf("\ty: %d  | yscreen: %d\n", y, yscreen);
-            fflush(stdout);
             begin = (yscreen >= rec_pos.x); 
             end = (yscreen <= (rec_pos.x + g.xres - g.shr->dim.x));
 
             isCollision1 = begin && end;
+
+#ifdef GEOM_DEBUG
+            printf("\tdist: %d  | slope: %d\n", dist, slope);
+            printf("\ty: %d  | yscreen: %d\n", y, yscreen);
             printf("\tbegin: %d && end: %d = %d\n", begin, end, isCollision1);
             fflush(stdout);
+#endif
 
             if (isCollision1 == 1) {
+#ifdef GEOM_DEBUG
                 printf("**\t\tCollision Found going out the top**\n");
                 fflush(stdout);
+#endif
                 g.shr->pos.x = yscreen - rec_pos.x;
                 g.shr->pos.y = xscreen - rec_pos.y + 1; 
             }
@@ -1031,8 +1072,10 @@ int checkExternalCollision(enum CollisionType ct) {
         }
 
     } else {
-
+#ifdef GEOM_DEBUG
         printf("checkExternCollision Param Error\n");
+        fflush(stdout);
+#endif
 
     }
 

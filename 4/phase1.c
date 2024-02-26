@@ -254,7 +254,7 @@ void render(void)
     int c = ((g.cur_color == color1) ? color2 : color1);
     XSetForeground(g.dpy, g.gc, c);
 
-    //x11_setFont(14);
+    x11_setFont(14);
     //void x11_setFont(unsigned int idx)
     // draw prompts and screen info
     XDrawString(g.dpy, g.win, g.gc, 80, 40, buf, strlen(buf));
