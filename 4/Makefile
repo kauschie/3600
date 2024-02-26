@@ -6,7 +6,7 @@ xwin89: xwin89.c
 	gcc xwin89.c -Wall -lX11 -oxwin89
 
 proj: xwin89-proj.c
-	gcc xwin89-proj.c -Wall -lX11 -oproj
+	gcc -g xwin89-proj.c -Wall -lX11 -oproj
 
 phase1: phase1.c
 	gcc phase1.c -Wall -lX11 -ophase1
