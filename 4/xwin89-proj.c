@@ -422,8 +422,8 @@ void x11_init_xwindows(void)
 		exit(EXIT_FAILURE);
 	}
 	scr = DefaultScreen(g.dpy);
-	g.xres = 600;
-	g.yres = 400;
+	g.xres = 400;
+	g.yres = 300;
 	g.win = XCreateSimpleWindow(g.dpy, RootWindow(g.dpy, scr), 1, 1,
 							g.xres, g.yres, 0, 0x00FFFFFF, 0x00000000);
 
@@ -434,6 +434,7 @@ void x11_init_xwindows(void)
     //g.by = rand() % (g.yres-g.bheight);
     g.cur_color = 0x00FFC72C;
     g.winner = 0;
+    x11_setFont(8);
     //g.xdirection = (rand() % 2 == 0) ? 1 : -1;
     //g.ydirection = (rand() % 2 == 0) ? 1 : -1;
     //*g.hasBall = NONE;
@@ -570,6 +571,11 @@ int check_keys(XEvent *e)
                 g.winner = 0;
 
                 break;
+
+            case XK_3:
+                x11_setFont(-1);
+                break;
+
 			case XK_Escape:
                 g.runThread = 0;
 				return 1;
@@ -601,7 +607,9 @@ void render(void)
     char buf5[128];
     char buf6[128];
 #endif
-    char buf7[128] = "Press 1 to launch the ball";
+    char buf7[128] = "Press 1 to launch the Box";
+    char buf8[128] = "Press 3 to change the font";
+    char buf9[] = "Box can move between windows if they're alligned";
     int color1 = 0x00ffc72c;
     int color2 = 0x00003594;
     //int wx =0, wy=0;
@@ -648,17 +656,18 @@ void render(void)
     int c = ((g.cur_color == color1) ? color2 : color1);
     XSetForeground(g.dpy, g.gc, c);
 
-    x11_setFont(14);
     //void x11_setFont(unsigned int idx)
     // draw prompts and screen info
     XDrawString(g.dpy, g.win, g.gc, 80, 40, buf, strlen(buf));
     XDrawString(g.dpy, g.win, g.gc, 80, 80, buf2, strlen(buf2));
 
     if (g.shr->hasBall != PARENT && g.shr->hasBall != CHILD) {
-        XDrawString(g.dpy, g.win, g.gc, g.xres/2 - 180, g.yres/2, buf7, strlen(buf7));
+        XDrawString(g.dpy, g.win, g.gc, g.xres/2 - 140, g.yres/2, buf7, strlen(buf7));
     } else {
-        sprintf(buf7, "Press 2 to reset the ball");
-        XDrawString(g.dpy, g.win, g.gc, g.xres/2 - 180, g.yres/2, buf7, strlen(buf7));
+        sprintf(buf7, "Press 2 to reset the box");
+        char buf10[] = "Press 1 to move the Box to the other window";
+        XDrawString(g.dpy, g.win, g.gc, g.xres/2 - 140, g.yres/2, buf7, strlen(buf7));
+        XDrawString(g.dpy, g.win, g.gc, 40, 120, buf10, strlen(buf10));
         
     }
 
@@ -666,6 +675,10 @@ void render(void)
     XDrawString(g.dpy, g.win, g.gc, 80, 120, buf4, strlen(buf4));
     XDrawString(g.dpy, g.win, g.gc, 80, 160, buf5, strlen(buf5));
 #endif
+
+    XDrawString(g.dpy, g.win, g.gc, 80, 200, buf8, strlen(buf8));
+    XDrawString(g.dpy, g.win, g.gc, 20, 240, buf9, strlen(buf9));
+
     
     if (((g.cpid == 0) && (g.shr->hasBall == CHILD))
             || ((g.cpid != 0) && (g.shr->hasBall == PARENT))) {
@@ -819,11 +832,27 @@ int check_winner(void)
 
 void x11_setFont(unsigned int idx)
 {
+    static int prev_index = -1;
     char *fonts[] = { "fixed","5x8","6x9","6x10","6x12","6x13","6x13bold",
     "7x13","7x13bold","7x14","8x13","8x13bold","8x16","9x15","9x15bold",
     "10x20","12x24" };
-    Font f = XLoadFont(g.dpy, fonts[idx]);
-    XSetFont(g.dpy, g.gc, f);
+    const int NUM_FONTS = 17; // size of fonts
+
+    if (idx == -1 && prev_index != -1) {
+        prev_index = (prev_index + 1) % NUM_FONTS;
+        Font f = XLoadFont(g.dpy, fonts[prev_index]);
+        XSetFont(g.dpy, g.gc, f);
+    } else if (idx >= 0 && idx < NUM_FONTS) {
+        Font f = XLoadFont(g.dpy, fonts[idx]);
+        XSetFont(g.dpy, g.gc, f);
+        prev_index = idx;
+    } else { //(idx == -1 && prev_index = -1) or error {
+        Font f = XLoadFont(g.dpy, fonts[7]);
+        XSetFont(g.dpy, g.gc, f);
+        prev_index = 7;
+    }
+        
+
 }
 
 // constantly gets window coords and writes only to the 
