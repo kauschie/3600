@@ -6,10 +6,10 @@ xwin89: xwin89.c
 	gcc xwin89.c -Wall -lX11 -oxwin89
 
 proj: xwin89-proj.c
-	gcc -g xwin89-proj.c -Wall -lX11 -oproj
+	gcc -g xwin89-proj.c -Wall -lX11 -lpthread -oproj
 
 phase1: phase1.c
-	gcc phase1.c -Wall -lX11 -ophase1
+	gcc phase1.c -Wall -lX11 -lpthread -ophase1
 
 shared_mem: shared_mem.c
 	gcc shared_mem.c -Wall -oshared_mem
