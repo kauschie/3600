@@ -178,7 +178,12 @@ int main(int argc, char *argv[], char *envp[])
     }
 
     void* t_status;
+    //printf("waiting to join threads\n");
+    //fflush(stdout);
+    g.runThread = 0; // make sure that the thread finishes
     pthread_join(g.tid, &t_status);
+    //printf("done joining threads\n");
+    //fflush(stdout);
 	x11_cleanup_xwindows();
 
 #ifdef USE_MSQ
@@ -192,7 +197,11 @@ int main(int argc, char *argv[], char *envp[])
 #ifdef USE_SHM
     teardownSHM();
     int p_status;
-    wait(&p_status);
+    if (g.hasSpawned == 1) {
+        //printf("waiting for child\n");
+        //fflush(stdout);
+        wait(&p_status);
+    }
     shmctl(g.shmid, IPC_RMID, 0);
 #endif
 
@@ -423,7 +432,7 @@ void x11_init_xwindows(void)
 	}
 	scr = DefaultScreen(g.dpy);
 	g.xres = 400;
-	g.yres = 300;
+	g.yres = 200;
 	g.win = XCreateSimpleWindow(g.dpy, RootWindow(g.dpy, scr), 1, 1,
 							g.xres, g.yres, 0, 0x00FFFFFF, 0x00000000);
 
@@ -676,7 +685,7 @@ void render(void)
     XDrawString(g.dpy, g.win, g.gc, 80, 160, buf5, strlen(buf5));
 #endif
 
-    XDrawString(g.dpy, g.win, g.gc, 80, 200, buf8, strlen(buf8));
+    XDrawString(g.dpy, g.win, g.gc, 80, 160, buf8, strlen(buf8));
     XDrawString(g.dpy, g.win, g.gc, 20, 240, buf9, strlen(buf9));
 
     
