@@ -110,7 +110,7 @@ void x11_init_xwindows(void)
 	}
 	scr = DefaultScreen(g.dpy);
 	g.xres = 400;
-	g.yres = 250;
+	g.yres = 200;
 	g.win = XCreateSimpleWindow(g.dpy, RootWindow(g.dpy, scr), 1, 1,
 							g.xres, g.yres, 0, 0x00FFFFFF, 0x00000000);
 
