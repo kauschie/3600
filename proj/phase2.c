@@ -19,8 +19,11 @@
 #include <pthread.h>
 
 
-#define DEBUG
+// #define DEBUG
 #define NUM_BOXES 5
+#define MAX_CHILDREN 20
+
+enum {COLOR_SIG=10, KILL_SIG=20};
 
 typedef struct {
     int x;
@@ -59,7 +62,9 @@ struct Global {
     int mqid;
     int master; // master controls all child windows
     int num_children;
-    int cpid_buf[20]; // has all the cpids of children (max 20)
+    int cpid_buf[MAX_CHILDREN]; // has all the cpids of children (max 20)
+                            // not really used now, probably will send child
+                            // specific signals with them
     int thread_active;
 
     int mytimer;        // current timer // 0 -> infinite
@@ -196,7 +201,7 @@ void x11_init_xwindows(void)
 	g.win = XCreateSimpleWindow(g.dpy, RootWindow(g.dpy, scr), 1, 1,
 							g.xres, g.yres, 0, 0x00FFFFFF, 0x00000000);
 
-	XStoreName(g.dpy, g.win, "mkausch project");
+	XStoreName(g.dpy, g.win, "mkausch phase2");
 	g.gc = XCreateGC(g.dpy, g.win, 0, NULL);
 
 
@@ -258,12 +263,13 @@ int check_mouse(XEvent *e)
             // check for clicking boxes
             MsgData m = checkBoxClick(mx, my);
             if (m.box_num == (NUM_BOXES -1)) {
-                // exit box
-                mymsg.type = (long)20;
+                
+                // kill children boxes
+                mymsg.type = (long)KILL_SIG;
                 mymsg.m = m;
                 for (int i = 0; i < g.num_children; i++) {
-                int ret =  msgsnd(g.mqid, &mymsg, sizeof(mymsg), 0);
 #ifdef DEBUG
+                int ret =  msgsnd(g.mqid, &mymsg, sizeof(mymsg), 0);
                     printf("clicked clicked quit box\n");
                     fflush(stdout);
                     if (ret == 0) {
@@ -271,24 +277,34 @@ int check_mouse(XEvent *e)
                         fflush(stdout);
                     }
 #endif
-                }
+#ifndef DEBUG
+                msgsnd(g.mqid, &mymsg, sizeof(mymsg), 0);
 
-                return 1;
+#endif
+                }
+                memset(g.cpid_buf, 0, sizeof(g.cpid_buf));  // clear cpid list
+                g.num_children = 0;
+
+                return 0;
             } else if (m.box_num >= 0 && m.box_num < (NUM_BOXES-1)) {
                 // send msg with box color
-                mymsg.type = (long)10;
+                mymsg.type = (long)COLOR_SIG;
                 mymsg.m = m;
 
                 for (int i = 0; i < g.num_children; i++) {
 
-                    int ret =  msgsnd(g.mqid, &mymsg, sizeof(mymsg), 0);
 #ifdef DEBUG
+                    int ret =  msgsnd(g.mqid, &mymsg, sizeof(mymsg), 0);
                     printf("clicked a box other than 4\n");
                     fflush(stdout);
                     if (ret == 0) {
                         printf("msgsnd was successful\n");
                         fflush(stdout);
                     }
+#endif
+#ifndef DEBUG
+                    msgsnd(g.mqid, &mymsg, sizeof(mymsg), 0);
+
 #endif
 
                 }
@@ -308,16 +324,39 @@ int check_mouse(XEvent *e)
             g.my = my;
             sum += 1;
             if (g.master == 1) {
-                if (sum % 10 == 0) {
-                    printf("m");
-                    fflush(stdout);
+                int n = sum%3;
+                switch (n)
+                {
+                case 0:
+                    printf("oOo You're Moving the Mouse over the Parent oOo\r");
+                    break;
+                case 1:
+                    printf("OoO You're Moving the Mouse over the Parent OoO\r");
+                    break;
+                case 2:
+                    printf("ooo You're Moving the Mouse over the Parent ooo\r");
+                    break;
+                default:
+                    break;
                 }
-
+                fflush(stdout);
             } else {
-                if (sum % 10 == 0) {
-                    printf("c");
-                    fflush(stdout);
+                int n = sum%3;
+                switch (n)
+                {
+                case 0:
+                    printf("oOo You're Moving the Mouse over a Child oOo   \r");
+                    break;
+                case 1:
+                    printf("OoO You're Moving the Mouse over a Child OoO   \r");
+                    break;
+                case 2:
+                    printf("ooo You're Moving the Mouse over a Child ooo   \r");
+                    break;
+                default:
+                    break;
                 }
+                fflush(stdout);
 
             }
 		}
@@ -342,7 +381,7 @@ int check_keys(XEvent *e)
 				return 1;
 
             case XK_c:
-                if (g.master == 1) {
+                if (g.master == 1 && g.num_children < MAX_CHILDREN) {
                     int cpid = fork();
                     if (cpid == 0) {
                         // main(myargc, myargv, myenvp);
@@ -466,9 +505,10 @@ MsgData checkBoxClick(int mx, int my)
                 m.box_color = boxes[i].color;
                 m.text_color = boxes[i].text_color;
                 m.box_num = i;
-
+#ifdef DEBUG
                 printf("You clicked on box %d... sending colors as a msg\n", i);
                 fflush(stdout);
+#endif
                 return m;
             }
 
@@ -518,14 +558,13 @@ void checkMSG(void)
     while (g.thread_active == 1) {
             // color change message
         if (msgrcv(g.mqid, &mymsg, sizeof(mymsg), 
-                    (long)10, IPC_NOWAIT) > 0) {// on success
+                    (long)COLOR_SIG, IPC_NOWAIT) > 0) {// on success
 
 
 #ifdef DEBUG
             printf("Got a message\n");
             fflush(stdout);
 #endif
-
 
             g.background_color = mymsg.m.box_color;
             g.text_color = mymsg.m.text_color;
@@ -534,7 +573,7 @@ void checkMSG(void)
         }
             // quit message
         if (msgrcv(g.mqid, &mymsg, sizeof(mymsg), 
-                        (long)20, IPC_NOWAIT) > 0) {
+                        (long)KILL_SIG, IPC_NOWAIT) > 0) {
             g.thread_active = 0;
         }
 
