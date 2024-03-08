@@ -20,10 +20,10 @@
 
 
 // #define DEBUG
-#define NUM_BOXES 5
+#define NUM_BOXES 10
 #define MAX_CHILDREN 20
 
-enum {COLOR_SIG=10, KILL_SIG=20};
+enum MsgType { PTOC = 1, CTOP = 2, COLOR_SIG=10, KILL_SIG=20 };
 
 typedef struct {
     int x;
@@ -31,6 +31,7 @@ typedef struct {
 } Vec2;
 
 typedef struct {
+    enum MsgType t;
     int box_color;
     int text_color;
     int box_num;
@@ -84,8 +85,8 @@ void getWindowCoords(int *x, int *y);
 void init_globals();
 void setupMQ(void);
 void teardownMQ(void);
-void start_thread(void);
 void checkMSG(void);
+void start_child_win();
 
 MsgData checkBoxClick(int mx, int my);
 
@@ -97,7 +98,7 @@ char **myenvp;
 int main(int argc, char *argv[], char *envp[])
 {
     g.envp = envp;
-    g.mytimer = 0;
+    // g.mytimer = 0;
     strcpy(g.fname, argv[0]);
 
 
@@ -107,7 +108,7 @@ int main(int argc, char *argv[], char *envp[])
         g.mqid = atoi(argv[2]);
         if ( g.mytimer < 0 ) {
             g.mytimer = 0; 
-            printf("Usage: %s [time duration (pos)] [mqid]\n", argv[0]);
+            printf("Usage: %s [timer duration (positive)]\n", argv[0]);
         }
         g.master = 0;
 
@@ -118,7 +119,7 @@ int main(int argc, char *argv[], char *envp[])
         // will create mqid
         if ( g.mytimer < 0 ) {
             g.mytimer = 0; 
-            printf("Usage: %s [time duration (pos)] [mqid]\n", argv[0]);
+            printf("Usage: %s [timer duration (positive)]\n", argv[0]);
         }
 
         // setup mq
@@ -127,10 +128,10 @@ int main(int argc, char *argv[], char *envp[])
         g.mytimer = 0;
         g.master = 1;
         // will create mqid and no timer
-        printf("Usage: %s [time duration (pos)] [mqid]\n", argv[0]);
+        printf("Usage: %s [timer duration (positive)]\n", argv[0]);
 
     } else {
-        printf("Usage: %s [time duration (pos)] [mqid]\n", argv[0]);
+        printf("Usage: %s [timer duration (positive)]\n", argv[0]);
     }
 
 
@@ -176,6 +177,8 @@ int main(int argc, char *argv[], char *envp[])
         fflush(stdout);
 #endif
     }
+    printf("                                                   \r");
+    fflush(stdout);
 
 	return 0;
 }
@@ -189,8 +192,6 @@ void x11_cleanup_xwindows(void)
 void x11_init_xwindows(void)
 {
 	int scr;
-
-    srand(time(NULL));
 	if (!(g.dpy = XOpenDisplay(NULL))) {
 		fprintf(stderr, "ERROR: could not open display!\n");
 		exit(EXIT_FAILURE);
@@ -203,9 +204,6 @@ void x11_init_xwindows(void)
 
 	XStoreName(g.dpy, g.win, "mkausch phase2");
 	g.gc = XCreateGC(g.dpy, g.win, 0, NULL);
-
-
-
 	XMapWindow(g.dpy, g.win);
 	XSelectInput(g.dpy, g.win, ExposureMask | StructureNotifyMask |
 								PointerMotionMask | ButtonPressMask |
@@ -215,12 +213,27 @@ void x11_init_xwindows(void)
 
 void init_globals()
 {
-    int colors[5] = { 0x00ff0000, 0x0000ff00, 0x000000ff, 0x00ffff00, 0x00000000};
-    int text_colors[5] = { 0x00ffffff, 0x00000000, 0x00ffffff, 0x00000000, 0x00ffffff};
-    const int WIDTH = 50, HEIGHT = 40, XSTART = 22, 
-                XPAD = (int)((g.xres - (XSTART) - (5*WIDTH))/NUM_BOXES), 
-                YPAD = 40,
-                YSTART = (g.yres - HEIGHT - YPAD);
+    srand(time(NULL));
+    int MAX_COLOR = 16777216;
+
+    // init box stuff
+    int colors[NUM_BOXES];
+    int text_colors[NUM_BOXES];
+    for (int i = 0; i < NUM_BOXES; i++) {
+        colors[i] = rand()%MAX_COLOR;
+        text_colors[i] = rand()%MAX_COLOR;
+    }
+
+    // int colors[5] = { 0x00ff0000, 0x0000ff00, 0x000000ff, 0x00ffff00, 0x00000000};
+    // int text_colors[5] = { 0x00ffffff, 0x00000000, 0x00ffffff, 0x00000000, 0x00ffffff};
+    // const int WIDTH = 50, HEIGHT = 40, XSTART = 22, 
+    //             XPAD = (int)((g.xres - (XSTART) - (5*WIDTH))/NUM_BOXES), 
+    //             YPAD = 40,
+    //             YSTART = (g.yres - HEIGHT - YPAD);
+    const int XPAD = 10, HEIGHT = 80, XSTART = 12, 
+            WIDTH = (int)((g.xres - (XSTART) - (NUM_BOXES*XPAD))/NUM_BOXES), 
+            YPAD = 20,
+            YSTART = (g.yres - HEIGHT - YPAD);
 
     for (int i = 0; i < NUM_BOXES; i++) {
         boxes[i].dim.x = WIDTH;
@@ -233,6 +246,7 @@ void init_globals()
 
     g.num_children = 0;
 
+    // set some initial colors
     if (g.master == 1) {
         g.background_color = 0x00FFC72C;
         g.text_color = 0x00000000;
@@ -240,8 +254,6 @@ void init_globals()
         g.background_color = 0x00003594;
         g.text_color = 0x00ffffff;
     }
-
-    // int c = (g.background_color == gold) ? 0x00ffffff : 0x00000000;
 
 }
 
@@ -265,9 +277,10 @@ int check_mouse(XEvent *e)
             if (m.box_num == (NUM_BOXES -1)) {
                 
                 // kill children boxes
-                mymsg.type = (long)KILL_SIG;
+                mymsg.type = (long)PTOC;
                 mymsg.m = m;
-                for (int i = 0; i < g.num_children; i++) {
+                mymsg.m.t = KILL_SIG;
+                // for (int i = 0; i < g.num_children; i++) {
 #ifdef DEBUG
                 int ret =  msgsnd(g.mqid, &mymsg, sizeof(mymsg), 0);
                     printf("clicked clicked quit box\n");
@@ -281,17 +294,19 @@ int check_mouse(XEvent *e)
                 msgsnd(g.mqid, &mymsg, sizeof(mymsg), 0);
 
 #endif
-                }
-                memset(g.cpid_buf, 0, sizeof(g.cpid_buf));  // clear cpid list
-                g.num_children = 0;
+                // }
+                if (g.num_children > 0)
+                    g.cpid_buf[--g.num_children] = 0;
+                //memset(g.cpid_buf, 0, sizeof(g.cpid_buf));  // clear cpid list
+                //g.num_children = 0;
 
                 return 0;
             } else if (m.box_num >= 0 && m.box_num < (NUM_BOXES-1)) {
                 // send msg with box color
-                mymsg.type = (long)COLOR_SIG;
+                mymsg.type = (long)PTOC;
                 mymsg.m = m;
-
-                for (int i = 0; i < g.num_children; i++) {
+                
+                // for (int i = 0; i < g.num_children; i++) {
 
 #ifdef DEBUG
                     int ret =  msgsnd(g.mqid, &mymsg, sizeof(mymsg), 0);
@@ -304,12 +319,9 @@ int check_mouse(XEvent *e)
 #endif
 #ifndef DEBUG
                     msgsnd(g.mqid, &mymsg, sizeof(mymsg), 0);
-
 #endif
 
-                }
-
-
+                // }
             } 
             return 0;
         }
@@ -378,9 +390,12 @@ int check_keys(XEvent *e)
 			case XK_1:          //              rrggbb
                 break;
 			case XK_Escape:
+                // only let parent use escape button
+                // children must be sent the signal from the parent
                 if (g.master == 1) {
 
-                    mymsg.type = (long)KILL_SIG;
+                    mymsg.type = (long)PTOC;
+                    mymsg.m.t = KILL_SIG;
                     for (int i = 0; i < g.num_children; i++) {
                         msgsnd(g.mqid, &mymsg, sizeof(mymsg), 0);
                     }
@@ -391,22 +406,10 @@ int check_keys(XEvent *e)
                 if (g.master == 1 && g.num_children < MAX_CHILDREN) {
                     int cpid = fork();
                     if (cpid == 0) {
-                        // main(myargc, myargv, myenvp);
-                        // ./a.out 
-                        char timer[10];
-                        char mqid[10];
-
-                        sprintf(timer, "%d", g.mytimer); // make str of timer and cpid
-                        sprintf(mqid, "%d", g.mqid);
-
-                        char *argv[] = {g.fname, timer, mqid, NULL};
-                        //char *envp[2] = {"DISPLAY=:0.0", NULL};
-                        execve(g.fname, argv, g.envp);
-
+                        start_child_win();
                     } else {
                         // record all the cpids of the children
                         g.cpid_buf[g.num_children++] = cpid;
-
                     }
                 }
                 break;
@@ -415,33 +418,37 @@ int check_keys(XEvent *e)
 	return 0;
 }
 
+void start_child_win()
+{
+    char timer[12];
+    char mqid[12];
+
+    // make str of timer and cpid
+    sprintf(timer, "%d", g.mytimer); 
+    sprintf(mqid, "%d", g.mqid);
+
+    char *argv[] = {g.fname, timer, mqid, NULL};
+    //char *envp[2] = {"DISPLAY=:0.0", NULL};
+    execve(g.fname, argv, g.envp);
+}
+
 void render(void)
 {
-    // int blue = 0x00FFC72C;
-    // int gold = 0x00003594;
     char buf[128];
     char buf2[128];
-    //char buf4[128];
-    //char buf5[128];
     
     if ((g.master == 1) && (g.num_children == 0)) {
         // parent before children spawn
-
             strcpy(buf, "Parent Window");
             strcpy(buf2, "Press 'c' to spawn child windows");
-
-
     } else if (g.master == 1 && g.num_children > 0) {
         // parent after children spawn with controls
             strcpy(buf, "Parent Window");
             strcpy(buf2, "Left-click mouse on colors");
-
-        
     } else {
         // children
             strcpy(buf, "Child Window");
             strcpy(buf2, "You can't do much with me");
-
     }
 
     // draw background
@@ -460,26 +467,21 @@ void render(void)
     }
 
     // draw text
-    // int c = (g.background_color == gold) ? 0x00ffffff : 0x00000000;
     XSetForeground(g.dpy, g.gc, g.text_color);
     x11_setFont(14);
     if (strlen(buf) > 0)
         XDrawString(g.dpy, g.win, g.gc, 120, 40, buf, strlen(buf));
     if (strlen(buf2) > 0)
         XDrawString(g.dpy, g.win, g.gc, 40, 70, buf2, strlen(buf2));
-
 }
 
 void physics(void)
 {
 
-
+    // no animation for now
 
     
 }
-
-
-
 
 void x11_setFont(unsigned int idx)
 {
@@ -490,7 +492,7 @@ void x11_setFont(unsigned int idx)
     XSetFont(g.dpy, g.gc, f);
 }
 
-
+// unused as of now... probably will use to move windows from parent
 void getWindowCoords(int *x, int *y)
 {
     Window root = DefaultRootWindow(g.dpy);
@@ -501,11 +503,14 @@ void getWindowCoords(int *x, int *y)
 
 }
 
+
 MsgData checkBoxClick(int mx, int my)
 {
-    MsgData m = {.box_color = -1, 
+    MsgData m = {   .t = COLOR_SIG,
+                    .box_color = -1, 
                     .text_color = -1,
                     .box_num = -1};
+                    // iterate over all colored boxes on parent
     for (int i = 0; i < NUM_BOXES; i++) {
         if (((mx > boxes[i].pos.x) && (mx < (boxes[i].pos.x + boxes[i].dim.x)))
             && ((my > boxes[i].pos.y) && (my < (boxes[i].pos.y + boxes[i].dim.y)))) {
@@ -518,7 +523,6 @@ MsgData checkBoxClick(int mx, int my)
 #endif
                 return m;
             }
-
     }
     return m;
 }
@@ -529,7 +533,6 @@ void setupMQ(void)
     printf("Setting up MQ\n");
     fflush(stdout);
 #endif
-
     // check for failure when generating ipc key
     g.mqid = msgget(IPC_PRIVATE, IPC_CREAT | 0666);
     if (g.mqid < 0) {
@@ -547,50 +550,48 @@ void teardownMQ(void)
     msgctl(g.mqid, IPC_RMID, 0);
 }
 
-void start_thread(void)
-{
-
-}
-
 void checkMSG(void)
 {
 
 
-#ifdef DEBUG
+    #ifdef DEBUG
     printf("checkMSG started\n");
     fflush(stdout);
-#endif
+    #endif
 
 
     while (g.thread_active == 1) {
             // color change message
         if (msgrcv(g.mqid, &mymsg, sizeof(mymsg), 
-                    (long)COLOR_SIG, IPC_NOWAIT) > 0) {// on success
+                    (long)PTOC, 0) > 0) {// on success
 
-
-#ifdef DEBUG
+            #ifdef DEBUG
             printf("Got a message\n");
             fflush(stdout);
-#endif
+            #endif
 
-            g.background_color = mymsg.m.box_color;
-            g.text_color = mymsg.m.text_color;
-            
-            // return; // leave without touching other msgs
-        }
-            // quit message
-        if (msgrcv(g.mqid, &mymsg, sizeof(mymsg), 
-                        (long)KILL_SIG, IPC_NOWAIT) > 0) {
-            g.thread_active = 0;
+            switch (mymsg.m.t)
+            {
+            case COLOR_SIG:
+                g.background_color = mymsg.m.box_color;
+                g.text_color = mymsg.m.text_color;
+                break;
+            case KILL_SIG:
+                g.thread_active = 0;
+                break;
+            default:
+                break;
+            }
+
         }
 
-        usleep(4000);
+        //usleep(4000);
 
     }
 
-#ifdef DEBUG
-            printf("checkMSG terminating\n");
-            fflush(stdout);
-#endif
+    #ifdef DEBUG
+    printf("checkMSG terminating\n");
+    fflush(stdout);
+    #endif
 
 } 
