@@ -378,8 +378,15 @@ int check_keys(XEvent *e)
 			case XK_1:          //              rrggbb
                 break;
 			case XK_Escape:
-				return 1;
+                if (g.master == 1) {
 
+                    mymsg.type = (long)KILL_SIG;
+                    for (int i = 0; i < g.num_children; i++) {
+                        msgsnd(g.mqid, &mymsg, sizeof(mymsg), 0);
+                    }
+
+                    return 1;
+                } 
             case XK_c:
                 if (g.master == 1 && g.num_children < MAX_CHILDREN) {
                     int cpid = fork();
