@@ -15,9 +15,11 @@
 #include <X11/keysym.h>
 #include <unistd.h>
 #include <time.h>
+#include <sys/msg.h>
+#include <pthread.h>
 
 
-//#define DEBUG
+#define DEBUG
 #define NUM_BOXES 5
 
 typedef struct {
@@ -28,7 +30,13 @@ typedef struct {
 typedef struct {
     int box_color;
     int text_color;
+    int box_num;
 } MsgData;
+
+struct WinMsg{
+    long type;
+    MsgData m;
+} mymsg;
 
 struct Box {
     Vec2 pos;
@@ -46,11 +54,13 @@ struct Global {
 
     int mx, my; // mouse positions
     int background_color;
+    int text_color;
 
-    int semid;
+    int mqid;
     int master; // master controls all child windows
     int num_children;
     int cpid_buf[20]; // has all the cpids of children (max 20)
+    int thread_active;
 
     int mytimer;        // current timer // 0 -> infinite
     char fname[128];    // file path from main
@@ -67,6 +77,11 @@ void physics(void);
 void x11_setFont(unsigned int idx);
 void getWindowCoords(int *x, int *y);
 void init_globals();
+void setupMQ(void);
+void teardownMQ(void);
+void start_thread(void);
+void checkMSG(void);
+
 MsgData checkBoxClick(int mx, int my);
 
 
@@ -80,13 +95,14 @@ int main(int argc, char *argv[], char *envp[])
     g.mytimer = 0;
     strcpy(g.fname, argv[0]);
 
+
     // PARSE COMMAND LINE ARGS
     if (argc == 3) {
         g.mytimer = atoi(argv[1]);
-        g.semid = atoi(argv[2]);
+        g.mqid = atoi(argv[2]);
         if ( g.mytimer < 0 ) {
             g.mytimer = 0; 
-            printf("Usage: %s [time duration (pos)] [semid]\n", argv[0]);
+            printf("Usage: %s [time duration (pos)] [mqid]\n", argv[0]);
         }
         g.master = 0;
 
@@ -94,9 +110,10 @@ int main(int argc, char *argv[], char *envp[])
     } else if (argc == 2) {
         g.mytimer = atoi(argv[1]);
         g.master = 1;
+        // will create mqid
         if ( g.mytimer < 0 ) {
             g.mytimer = 0; 
-            printf("Usage: %s [time duration (pos)] [semid]\n", argv[0]);
+            printf("Usage: %s [time duration (pos)] [mqid]\n", argv[0]);
         }
 
         // setup mq
@@ -104,10 +121,11 @@ int main(int argc, char *argv[], char *envp[])
     } else if (argc == 1) {
         g.mytimer = 0;
         g.master = 1;
-        printf("Usage: %s [time duration (pos)] [semid]\n", argv[0]);
+        // will create mqid and no timer
+        printf("Usage: %s [time duration (pos)] [mqid]\n", argv[0]);
 
     } else {
-        printf("Usage: %s [time duration (pos)] [semid]\n", argv[0]);
+        printf("Usage: %s [time duration (pos)] [mqid]\n", argv[0]);
     }
 
 
@@ -115,6 +133,13 @@ int main(int argc, char *argv[], char *envp[])
 	int kdone = 0, mdone = 0;
 	x11_init_xwindows();
     init_globals();
+    pthread_t tid;
+    if (g.master == 1) {
+        setupMQ();
+    } else {
+        g.thread_active = 1;
+        pthread_create(&tid, NULL, (void*)checkMSG, NULL);
+    }
 
 	while (!mdone && !kdone) {
 		/* Check the event queue */
@@ -129,9 +154,24 @@ int main(int argc, char *argv[], char *envp[])
             if (--g.mytimer == 0)
                 kdone = 1;
         }
+        if ((g.master == 0) && (g.thread_active == 0)) {
+            kdone = 1;  // quit msg sent by parents
+        }
 		usleep(4000);
     }
 	x11_cleanup_xwindows();
+    if (g.master == 1) {
+        teardownMQ();
+    } else {
+        void* status;
+        g.thread_active = 0;
+        pthread_join(tid, &status);
+#ifdef DEBUG
+        printf("finished joining threads\n");
+        fflush(stdout);
+#endif
+    }
+
 	return 0;
 }
 
@@ -190,9 +230,13 @@ void init_globals()
 
     if (g.master == 1) {
         g.background_color = 0x00FFC72C;
+        g.text_color = 0x00000000;
     } else {
         g.background_color = 0x00003594;
+        g.text_color = 0x00ffffff;
     }
+
+    // int c = (g.background_color == gold) ? 0x00ffffff : 0x00000000;
 
 }
 
@@ -213,19 +257,44 @@ int check_mouse(XEvent *e)
 		if (e->xbutton.button==1) { 
             // check for clicking boxes
             MsgData m = checkBoxClick(mx, my);
-            if ((m.box_color) > 0) {
-                // send message 
+            if (m.box_num == (NUM_BOXES -1)) {
+                // exit box
+                mymsg.type = (long)20;
+                mymsg.m = m;
+                for (int i = 0; i < g.num_children; i++) {
+                int ret =  msgsnd(g.mqid, &mymsg, sizeof(mymsg), 0);
+#ifdef DEBUG
+                    printf("clicked clicked quit box\n");
+                    fflush(stdout);
+                    if (ret == 0) {
+                        printf("msgsnd was successful\n");
+                        fflush(stdout);
+                    }
+#endif
+                }
+
+                return 1;
+            } else if (m.box_num >= 0 && m.box_num < (NUM_BOXES-1)) {
+                // send msg with box color
+                mymsg.type = (long)10;
+                mymsg.m = m;
+
+                for (int i = 0; i < g.num_children; i++) {
+
+                    int ret =  msgsnd(g.mqid, &mymsg, sizeof(mymsg), 0);
+#ifdef DEBUG
+                    printf("clicked a box other than 4\n");
+                    fflush(stdout);
+                    if (ret == 0) {
+                        printf("msgsnd was successful\n");
+                        fflush(stdout);
+                    }
+#endif
+
+                }
 
 
-
-
-            } else {
-                // didn't click a box
-
-            }
-
-
-
+            } 
             return 0;
         }
 		if (e->xbutton.button==3) { return 0;}
@@ -279,8 +348,12 @@ int check_keys(XEvent *e)
                         // main(myargc, myargv, myenvp);
                         // ./a.out 
                         char timer[10];
+                        char mqid[10];
+
                         sprintf(timer, "%d", g.mytimer); // make str of timer and cpid
-                        char *argv[] = {g.fname, timer, "0", NULL};
+                        sprintf(mqid, "%d", g.mqid);
+
+                        char *argv[] = {g.fname, timer, mqid, NULL};
                         //char *envp[2] = {"DISPLAY=:0.0", NULL};
                         execve(g.fname, argv, g.envp);
 
@@ -299,7 +372,7 @@ int check_keys(XEvent *e)
 void render(void)
 {
     // int blue = 0x00FFC72C;
-    int gold = 0x00003594;
+    // int gold = 0x00003594;
     char buf[128];
     char buf2[128];
     //char buf4[128];
@@ -341,8 +414,8 @@ void render(void)
     }
 
     // draw text
-    int c = (g.background_color == gold) ? 0x00ffffff : 0x00000000;
-    XSetForeground(g.dpy, g.gc, c);
+    // int c = (g.background_color == gold) ? 0x00ffffff : 0x00000000;
+    XSetForeground(g.dpy, g.gc, g.text_color);
     x11_setFont(14);
     if (strlen(buf) > 0)
         XDrawString(g.dpy, g.win, g.gc, 120, 40, buf, strlen(buf));
@@ -379,23 +452,20 @@ void getWindowCoords(int *x, int *y)
     
     XGetWindowAttributes(g.dpy, root, &g.xwa);
     XTranslateCoordinates(g.dpy, g.win, root, g.xwa.x, g.xwa.y, x, y, &child);
-#if DEBUG 
-    printf("wx: %d, wy: %d\n", wx, wy);
-#endif
 
 }
 
 MsgData checkBoxClick(int mx, int my)
 {
-    MsgData m = {.box_color = 0, 
-                    .text_color = 0};
+    MsgData m = {.box_color = -1, 
+                    .text_color = -1,
+                    .box_num = -1};
     for (int i = 0; i < NUM_BOXES; i++) {
         if (((mx > boxes[i].pos.x) && (mx < (boxes[i].pos.x + boxes[i].dim.x)))
             && ((my > boxes[i].pos.y) && (my < (boxes[i].pos.y + boxes[i].dim.y)))) {
                 m.box_color = boxes[i].color;
                 m.text_color = boxes[i].text_color;
-
-                // TODO - send message
+                m.box_num = i;
 
                 printf("You clicked on box %d... sending colors as a msg\n", i);
                 fflush(stdout);
@@ -406,3 +476,75 @@ MsgData checkBoxClick(int mx, int my)
     return m;
 }
 
+void setupMQ(void)
+{
+#ifdef DEBUG
+    printf("Setting up MQ\n");
+    fflush(stdout);
+#endif
+
+    // check for failure when generating ipc key
+    g.mqid = msgget(IPC_PRIVATE, IPC_CREAT | 0666);
+    if (g.mqid < 0) {
+        perror("msgget");
+        exit(EXIT_FAILURE);
+    }
+}
+
+void teardownMQ(void)
+{
+#ifdef DEBUG
+    printf("Tearing Down MQ\n");
+    fflush(stdout);
+#endif
+    msgctl(g.mqid, IPC_RMID, 0);
+}
+
+void start_thread(void)
+{
+
+}
+
+void checkMSG(void)
+{
+
+
+#ifdef DEBUG
+    printf("checkMSG started\n");
+    fflush(stdout);
+#endif
+
+
+    while (g.thread_active == 1) {
+            // color change message
+        if (msgrcv(g.mqid, &mymsg, sizeof(mymsg), 
+                    (long)10, IPC_NOWAIT) > 0) {// on success
+
+
+#ifdef DEBUG
+            printf("Got a message\n");
+            fflush(stdout);
+#endif
+
+
+            g.background_color = mymsg.m.box_color;
+            g.text_color = mymsg.m.text_color;
+            
+            // return; // leave without touching other msgs
+        }
+            // quit message
+        if (msgrcv(g.mqid, &mymsg, sizeof(mymsg), 
+                        (long)20, IPC_NOWAIT) > 0) {
+            g.thread_active = 0;
+        }
+
+        usleep(4000);
+
+    }
+
+#ifdef DEBUG
+            printf("checkMSG terminating\n");
+            fflush(stdout);
+#endif
+
+} 
