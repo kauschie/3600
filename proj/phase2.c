@@ -20,8 +20,14 @@
 
 
 // #define DEBUG
+
+#ifndef NUM_BOXES
 #define NUM_BOXES 10
+#endif //  NUM_BOXES
+
+#ifndef MAX_CHILDREN
 #define MAX_CHILDREN 20
+#endif // !MAX_CHILDREN
 
 enum MsgType { PTOC = 1, CTOP = 2, COLOR_SIG=10, KILL_SIG=20 };
 
