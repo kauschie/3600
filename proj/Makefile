@@ -6,6 +6,8 @@ phase1: phase1.c
 
 phase2: phase2.c
 	gcc phase2.c -Wall -lX11 -lpthread -o phase2 -DNUM_CHILDREN=20 -DNUM_BOXES=8
+	gcc phase2.c -g -Wall -lX11 -lpthread -o dbg_phase2 -DNUM_CHILDREN=20 -DNUM_BOXES=8 -DDEBUG
+
 
 clean:
 	rm -f phase1 phase2
