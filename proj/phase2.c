@@ -17,6 +17,7 @@ class: Operating Systems cmps3600
 #include <time.h>
 #include <sys/msg.h>
 #include <pthread.h>
+#include <sys/wait.h>
 
 
 // #define DEBUG
@@ -77,6 +78,11 @@ struct Global {
     int mytimer;        // current timer // 0 -> infinite
     char fname[128];    // file path from main
     char ** envp;       // environment params so windows can open via ssh 
+    struct sigaction sa;
+    sigset_t mask;
+    pthread_t tid;
+
+
 } g;
 
 void x11_cleanup_xwindows(void);
@@ -94,6 +100,7 @@ void teardownMQ(void);
 void checkMSG(void);
 void start_child_win();
 void parentCheckMSG();
+void sigusr1_handler(int sig);
 
 MsgData checkBoxClick(int mx, int my);
 
@@ -134,15 +141,18 @@ int main(int argc, char *argv[], char *envp[]) {
     int kdone = 0, mdone = 0;
     x11_init_xwindows();
     init_globals();
-    pthread_t tid;
+    // pthread_t tid;
     g.envp = envp;
     strcpy(g.fname, argv[0]);
 
+
     if (g.master == 1) {
         setupMQ();
+
     } else {
         g.thread_active = 1;
-        pthread_create(&tid, NULL, (void*)checkMSG, NULL);
+        pthread_create(&g.tid, NULL, (void*)checkMSG, NULL);
+    
     }
 
     while (!mdone && !kdone) {
@@ -158,14 +168,30 @@ int main(int argc, char *argv[], char *envp[]) {
             if (--g.mytimer == 0)
                 kdone = 1;
         }
-        if ((g.master == 0) && (g.thread_active == 0)) {
-            kdone = 1;  // quit msg sent by parents
+        if ((g.master == 0)) {
+            if (g.thread_active == 0) {
+                kdone = 1;  // quit msg sent by parents
+                // printf("threads_active already 0\n");
+                // printf("sending pthread_kill\n");
+                // fflush(stdout);
+                pthread_kill(g.tid, SIGUSR1);
+            }
+            if (kdone || mdone) {
+                // printf("setting threads_active to 0\n");
+                g.thread_active = 0;
+                // printf("sending pthread_kill\n");
+                // fflush(stdout);
+                pthread_kill(g.tid, SIGUSR1);
+            }
         }
         if (g.master == 1) {
             parentCheckMSG();
         }
         usleep(4000);
     }
+
+    // printf("exited main while loop\n");
+    // fflush(stdout);
 
     x11_cleanup_xwindows();
 
@@ -174,7 +200,10 @@ int main(int argc, char *argv[], char *envp[]) {
     } else {
         void* status;
         g.thread_active = 0;
-        pthread_join(tid, &status);
+        // printf("trying to join threads\n");
+        // fflush(stdout);
+        pthread_kill(g.tid, SIGUSR1);
+        pthread_join(g.tid, &status);
         #ifdef DEBUG
         printf("finished joining threads\n");
         fflush(stdout);
@@ -227,12 +256,6 @@ void init_globals()
         text_colors[i] = rand()&MAX_COLOR;
     }
 
-    // int colors[5] = { 0x00ff0000, 0x0000ff00, 0x000000ff, 0x00ffff00, 0x00000000};
-    // int text_colors[5] = { 0x00ffffff, 0x00000000, 0x00ffffff, 0x00000000, 0x00ffffff};
-    // const int WIDTH = 50, HEIGHT = 40, XSTART = 22, 
-    //             XPAD = (int)((g.xres - (XSTART) - (5*WIDTH))/NUM_BOXES), 
-    //             YPAD = 40,
-    //             YSTART = (g.yres - HEIGHT - YPAD);
     const int XPAD = 10, HEIGHT = 80, XSTART = 12, 
           WIDTH = (int)((g.xres - (XSTART) - (NUM_BOXES*XPAD))/NUM_BOXES), 
           YPAD = 20,
@@ -258,12 +281,32 @@ void init_globals()
         g.text_color = 0x00ffffff;
     }
 
+    // block sigusr1 signals to all threads
+    // child msg thread will open signal for sigusr1
+    sigemptyset(&g.mask);
+    sigaddset(&g.mask, SIGUSR1);
+    // pthread_sigmask(SIG_BLOCK, &g.mask, NULL);
+    sigprocmask(SIG_BLOCK, &g.mask, NULL);
+
+
+    g.sa.sa_handler = sigusr1_handler;
+    // g.sa.sa_flags = SA_RESTART;
+    // block all signals while in signal handler
+    sigfillset(&g.sa.sa_mask);
+
+    // register sigaction struct with signal handler
+    if (sigaction(SIGUSR1, &g.sa, NULL) == -1) {
+        perror("sigaction SIGUSR1");
+        exit(1);
+    }
+    
 }
 
 int check_mouse(XEvent *e) {
     static int savex = 0;
     static int savey = 0;
     static int sum = 0;
+    static MsgData m;
 
     int mx = e->xbutton.x;
     int my = e->xbutton.y;
@@ -276,9 +319,14 @@ int check_mouse(XEvent *e) {
         if (e->xbutton.button==1) { 
             // check for clicking boxes
             if (g.master == 1) {
-                MsgData m = checkBoxClick(mx, my);
+                m = checkBoxClick(mx, my);
                 if ((m.box_num == (NUM_BOXES -1))
                     && (g.num_children > 0) ){
+
+                    #ifdef DEBUG
+                    printf("You clicked on box %d... sending colors as a msg\n", m.box_num);
+                    fflush(stdout);
+                    #endif
 
                     // kill children boxes
                     mymsg.type = (long)PTOC;
@@ -301,14 +349,22 @@ int check_mouse(XEvent *e) {
                     // }
                     // only send signals if there are children so that there
                     // arent erroneous signals just waiting in the msg queue
-                    if (g.num_children > 0)
+                    if (g.num_children > 0) {
                         g.cpid_buf[--g.num_children] = 0;
+                        // printf("removed child, g.num_children now: %d\n", g.num_children);
+                    }
                     //memset(g.cpid_buf, 0, sizeof(g.cpid_buf));  // clear cpid list
                     //g.num_children = 0;
 
                     return 0;
                 } else if ((m.box_num >= 0 && m.box_num < (NUM_BOXES-1))
                             && (g.num_children > 0)) {
+
+                    #ifdef DEBUG
+                    printf("You clicked on box %d... sending colors as a msg\n", m.box_num);
+                    fflush(stdout);
+                    #endif
+                    
                     // send msg with box color
                     mymsg.type = (long)PTOC;
                     mymsg.m = m;
@@ -317,7 +373,7 @@ int check_mouse(XEvent *e) {
 
                     #ifdef DEBUG
                     int ret =  msgsnd(g.mqid, &mymsg, sizeof(mymsg), 0);
-                    printf("clicked a box other than 4\n");
+                    printf("clicked a box other than the last\n");
                     fflush(stdout);
                     if (ret == 0) {
                         printf("msgsnd was successful\n");
@@ -408,6 +464,11 @@ int check_keys(XEvent *e) {
                     mymsg.type = (long)CTOP;
                     mymsg.m.t = REMOVE_CHILD;
                     msgsnd(g.mqid, &mymsg, sizeof(mymsg), 0);
+                    //g.thread_active = 0;
+
+                    // printf("sending pthread_kill\n");
+                    // fflush(stdout);
+                    pthread_kill(g.tid, SIGUSR1);
 
                     return 1;
                 }
@@ -419,6 +480,8 @@ int check_keys(XEvent *e) {
                     } else {
                         // record all the cpids of the children
                         g.cpid_buf[g.num_children++] = cpid;
+                        // printf("g.num_children: %d\n",g.num_children);
+                        // fflush(stdout);
                     }
                 }
                 break;
@@ -452,11 +515,11 @@ void render(void) {
         // parent before children spawn
         strcpy(buf, "Parent Window");
         strcpy(buf2, "Press 'c' to spawn child windows");
-        if (g.num_children > 0) {
+        // if (g.num_children > 0) {
             sprintf(buf4, "# children: %d", g.num_children);
-        } else {
-            memset(buf4, 0, sizeof(buf4));
-        }
+        // } else {
+        //     memset(buf4, 0, sizeof(buf4));
+        // }
         if (msgctl(g.mqid, IPC_STAT, &msgbuf) == 0){
             sprintf(buf5, "# pending msg: %lu", msgbuf.msg_qnum);
         } else {
@@ -514,7 +577,7 @@ void render(void) {
         XDrawString(g.dpy, g.win, g.gc, 30, 40, buf, strlen(buf));
     if (strlen(buf2) > 0)
         XDrawString(g.dpy, g.win, g.gc, 60, 90, buf2, strlen(buf2));
-    // #ifdef DEBUG
+    #ifdef DEBUG
     if (strlen(buf4) > 0) {
 
         XDrawString(g.dpy, g.win, g.gc, 
@@ -529,7 +592,7 @@ void render(void) {
                                 70,
                                 buf5, strlen(buf5));
     }
-    // #endif
+    #endif
 }
 
 void physics(void)
@@ -571,10 +634,7 @@ MsgData checkBoxClick(int mx, int my) {
             m.text_color = boxes[i].text_color;
             m.box_num = i;
 
-            #ifdef DEBUG
-            printf("You clicked on box %d... sending colors as a msg\n", i);
-            fflush(stdout);
-            #endif
+
 
             return m;
         }
@@ -607,6 +667,10 @@ void teardownMQ(void) {
 
 void checkMSG(void) {
 
+    sigset_t mask;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGUSR1);
+    pthread_sigmask(SIG_UNBLOCK, &mask, NULL);
 
     #ifdef DEBUG
     printf("checkMSG started\n");
@@ -621,20 +685,33 @@ void checkMSG(void) {
 
             #ifdef DEBUG
             printf("Got a message\n");
-            fflush(stdout);
             #endif
 
             switch (mymsg.m.t) {
                 case COLOR_SIG:
+                    // printf("Got a COLOR message\n");
                     g.background_color = mymsg.m.box_color;
                     g.text_color = mymsg.m.text_color;
+                    //printf("color: %d\n", g.)
                     break;
                 case KILL_SIG:
+                    // printf("Got a KILL message\n");
+
                     g.thread_active = 0;
                     break;
+                case REMOVE_CHILD:
+                    // printf("Got a REMOVE CHILD message\n");
+                    // resend message if it received it in err... don't think
+                    // that is happening currently and it never gets printed out
+                    // just a sanity check
+                    msgsnd(g.mqid, &mymsg, sizeof(mymsg), 0);
+                    break;
                 default:
+                    // printf("Got a DEFAULT/ERROR message\n");
+
                     break;
             }
+            // fflush(stdout);
 
         }
 
@@ -663,8 +740,10 @@ void parentCheckMSG() {
             case REMOVE_CHILD:
                 g.cpid_buf[--g.num_children] = 0;
                 #ifdef DEBUG
-                printf("Signal Sent to remove child\n");
+                printf("Signal received to remove child\n");
+                printf("g.num_children: %d\n",g.num_children);
                 fflush(stdout);
+                
                 #endif
                 break;
             default:
@@ -672,4 +751,18 @@ void parentCheckMSG() {
         }
 
     }
+}
+
+// signal handler for worker thread to 
+// quit while blocking for msgrcv
+void sigusr1_handler(int sig) {
+    
+    #ifdef DEBUG
+    char buf[100];
+    strcpy(buf, "in signal handler from pthread_kill\n");
+    write(2, buf, strlen(buf));
+    fflush(stdout);
+    #endif
+    
+    exit(0);
 }

@@ -58,12 +58,13 @@ int main(int argc, char *argv[], char *envp[])
     myargc = argc;
     myargv = argv;
     myenvp = envp;
+    int num;
 
     int mytimer = 0;
     if (argc == 2) {
-        mytimer = atoi(argv[1]);
-        if ( mytimer > 0 ) {
-            mytimer = mytimer; 
+        num = atoi(argv[1]);
+        if ( num > 0 ) {
+            mytimer = num; 
         }
     } else {
         printf("Usage: %s n\n", argv[0]);

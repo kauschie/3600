@@ -23,11 +23,13 @@ int main(void)
 {
     int status;
     pid_t cpid = fork();
+    signal(SIGINT, handle_the_signal);
+
 
     if (cpid == 0) {
         // child
 
-        while (1) { break; }
+        while (1) { }
         exit(98);
 
     } else {

@@ -11,3 +11,4 @@ phase2: phase2.c
 
 clean:
 	rm -f phase1 phase2
+	./cleanipc.sh mkausch
