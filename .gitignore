@@ -16,3 +16,15 @@ dbg_phase2
 proj/phase1
 proj/phase2
 4/phase2
+8/cleanipc.sh
+8/exe*
+8/foo
+8/lab8
+8/fork*
+8/memory.c
+8/myecho*
+8/myexec*
+8/nofork*
+8/notes8.c
+8/sample*
+
