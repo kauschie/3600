@@ -18,7 +18,8 @@ class: Operating Systems cmps3600
 #include <sys/msg.h>
 #include <pthread.h>
 #include <sys/wait.h>
-
+#include <signal.h>
+#include <sys/types.h>
 
 // #define DEBUG
 
@@ -290,9 +291,9 @@ void init_globals()
 
 
     g.sa.sa_handler = sigusr1_handler;
-    // g.sa.sa_flags = SA_RESTART;
     // block all signals while in signal handler
     sigfillset(&g.sa.sa_mask);
+    g.sa.sa_flags = 0;
 
     // register sigaction struct with signal handler
     if (sigaction(SIGUSR1, &g.sa, NULL) == -1) {
