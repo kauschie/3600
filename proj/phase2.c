@@ -577,7 +577,6 @@ void render(void) {
         XDrawString(g.dpy, g.win, g.gc, 30, 40, buf, strlen(buf));
     if (strlen(buf2) > 0)
         XDrawString(g.dpy, g.win, g.gc, 60, 90, buf2, strlen(buf2));
-    #ifdef DEBUG
     if (strlen(buf4) > 0) {
 
         XDrawString(g.dpy, g.win, g.gc, 
@@ -586,6 +585,7 @@ void render(void) {
                                 40,
                                 buf4, strlen(buf4));
     }
+    #ifdef DEBUG
     if (strlen(buf5) > 0) {
         XDrawString(g.dpy, g.win, g.gc, 
                                 (int)(g.xres*0.6), 
