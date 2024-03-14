@@ -2,7 +2,7 @@
  *
 Name: Michael Kausch
 Assignment: Project
-date: 3/1/24
+date: 3/7/24
 professor: Gordon
 class: Operating Systems cmps3600
 
@@ -58,7 +58,7 @@ struct Box {
     int color;
     int text_color;
     int winner;
-} boxes[NUM_BOXES], cube;
+} boxes[NUM_BOXES], boxy;
 
 struct Global {
     Display *dpy;
@@ -72,7 +72,7 @@ struct Global {
     int text_color;
 
     int mqid;
-    int master; // master controls all child windows
+    int parent; // parent controls all child windows
     int num_children;
     int cpid_buf[MAX_CHILDREN]; // has all the cpids of children (max 20)
                                 // not really used now, probably will send child
@@ -82,6 +82,8 @@ struct Global {
     int mytimer;        // current timer // 0 -> infinite
     char fname[128];    // file path from main
     char ** envp;       // environment params so windows can open via ssh 
+   
+    // mask vars
     struct sigaction sa;
     sigset_t mask;
     pthread_t tid;
@@ -106,9 +108,7 @@ void start_child_win();
 void parentCheckMSG();
 void sigusr1_handler(int sig);
 int check_winner(void);
-
 MsgData checkBoxClick(int mx, int my);
-
 
 int main(int argc, char *argv[], char *envp[]) {
 
@@ -121,12 +121,12 @@ int main(int argc, char *argv[], char *envp[]) {
             g.mytimer = 0; 
             printf("Usage: %s [timer duration (positive)]\n", argv[0]);
         }
-        g.master = 0;
+        g.parent = 0;
 
         // make thread to look for messages
     } else if (argc == 2) {
         g.mytimer = atoi(argv[1]);
-        g.master = 1;
+        g.parent = 1;
         // will create mqid
         if ( g.mytimer < 0 ) {
             g.mytimer = 0; 
@@ -134,7 +134,7 @@ int main(int argc, char *argv[], char *envp[]) {
         }
     } else if (argc == 1) {
         g.mytimer = 0;
-        g.master = 1;
+        g.parent = 1;
         // will create mqid and no timer
         printf("Usage: %s [timer duration (positive)]\n", argv[0]);
 
@@ -151,7 +151,7 @@ int main(int argc, char *argv[], char *envp[]) {
     strcpy(g.fname, argv[0]);
 
 
-    if (g.master == 1) {
+    if (g.parent == 1) {
         setupMQ();
 
     } else {
@@ -173,7 +173,7 @@ int main(int argc, char *argv[], char *envp[]) {
             if (--g.mytimer == 0)
                 kdone = 1;
         }
-        if ((g.master == 0)) {
+        if ((g.parent == 0)) {
             if (g.thread_active == 0) {
                 kdone = 1;  // quit msg sent by parents
                 // printf("threads_active already 0\n");
@@ -189,7 +189,7 @@ int main(int argc, char *argv[], char *envp[]) {
                 pthread_kill(g.tid, SIGUSR1);
             }
         }
-        if (g.master == 1) {
+        if (g.parent == 1) {
             parentCheckMSG();
         }
         usleep(4000);
@@ -200,7 +200,7 @@ int main(int argc, char *argv[], char *envp[]) {
 
     x11_cleanup_xwindows();
 
-    if (g.master == 1) {
+    if (g.parent == 1) {
         teardownMQ();
     } else {
         void* status;
@@ -287,7 +287,7 @@ void init_globals()
     g.num_children = 0;
 
     // set some initial colors for windows
-    if (g.master == 1) {
+    if (g.parent == 1) {
         g.background_color = 0x00FFC72C;
         g.text_color = 0x00000000;
     } else {
@@ -315,17 +315,17 @@ void init_globals()
     }
 
 
-    // init cube if child
+    // init boxy if child
 
-    if (g.master == 0) {
-        cube.dim.x = cube.dim.y = 80;
-        cube.pos.x = rand() % (g.xres - cube.dim.x);
-        cube.pos.y = rand() % (g.yres - cube.dim.y);
-        cube.color = g.text_color;
-        cube.text_color = g.background_color;
-        cube.dir.x = (rand() % 2 == 0) ? 1 : -1;
-        cube.dir.y = (rand() % 2 == 0) ? 1 : -1;
-        cube.winner = 0;
+    if (g.parent == 0) {
+        boxy.dim.x = boxy.dim.y = 80;
+        boxy.pos.x = rand() % (g.xres - boxy.dim.x);
+        boxy.pos.y = rand() % (g.yres - boxy.dim.y);
+        boxy.color = g.text_color;
+        boxy.text_color = g.background_color;
+        boxy.dir.x = (rand() % 2 == 0) ? 1 : -1;
+        boxy.dir.y = (rand() % 2 == 0) ? 1 : -1;
+        boxy.winner = 0;
     }
     
 }
@@ -346,7 +346,7 @@ int check_mouse(XEvent *e) {
     if (e->type == ButtonPress) {
         if (e->xbutton.button==1) { 
             // check for clicking boxes
-            if (g.master == 1) {
+            if (g.parent == 1) {
                 m = checkBoxClick(mx, my);
                 if ((m.box_num == (NUM_BOXES -1))
                     && (g.num_children > 0) ){
@@ -426,7 +426,7 @@ int check_mouse(XEvent *e) {
             g.mx = mx;
             g.my = my;
             sum += 1;
-            if (g.master == 1) {
+            if (g.parent == 1) {
                 int n = sum%3;
                 switch (n) {
                     case 0:
@@ -479,7 +479,7 @@ int check_keys(XEvent *e) {
             case XK_Escape:
                 // only let parent use escape button
                 // children must be sent the signal from the parent
-                if (g.master == 1) {
+                if (g.parent == 1) {
 
                     mymsg.type = (long)PTOC;
                     mymsg.m.t = KILL_SIG;
@@ -488,7 +488,7 @@ int check_keys(XEvent *e) {
                     }
 
                     return 1;
-                } else if (g.master == 0) {
+                } else if (g.parent == 0) {
 
                     mymsg.type = (long)CTOP;
                     mymsg.m.t = REMOVE_CHILD;
@@ -502,7 +502,7 @@ int check_keys(XEvent *e) {
                     return 1;
                 }
             case XK_c:
-                if (g.master == 1 && g.num_children < MAX_CHILDREN) {
+                if (g.parent == 1 && g.num_children < MAX_CHILDREN) {
                     int cpid = fork();
                     if (cpid == 0) {
                         start_child_win();
@@ -543,7 +543,7 @@ void render(void) {
     char buf8[] = "#";
     struct msqid_ds msgbuf;
 
-    if ((g.master == 1) && (g.num_children == 0)) {
+    if ((g.parent == 1) && (g.num_children == 0)) {
         // parent before children spawn
         strcpy(buf, "Parent Window");
         strcpy(buf2, "Press 'c' to spawn child windows");
@@ -558,7 +558,7 @@ void render(void) {
             memset(buf5, 0, sizeof(buf5));
         }
 
-    } else if (g.master == 1 && g.num_children > 0) {
+    } else if (g.parent == 1 && g.num_children > 0) {
         // parent after children spawn with controls
         strcpy(buf, "Parent Window");
         strcpy(buf2, "Left-click mouse on colors");
@@ -585,7 +585,7 @@ void render(void) {
     // draw boxes
     int minx = 10, miny = 10;
 
-    if (g.master == 1 && g.num_children > 0) {
+    if (g.parent == 1 && g.num_children > 0) {
         for (int i = 0; i < NUM_BOXES; i++) {
             XSetForeground(g.dpy, g.gc, boxes[i].color);
             XFillRectangle(g.dpy, g.win, g.gc, 
@@ -596,7 +596,7 @@ void render(void) {
                 XSetForeground(g.dpy, g.gc, g.text_color);
                 x11_setFont(14);
                 XDrawString(g.dpy, g.win, g.gc, 
-                            boxes[i].pos.x + (0.4 * boxes[i].dim.x), 
+                            boxes[i].pos.x + (0.4 * boxes[i].dim.x), // try to center it somewhat
                             boxes[i].pos.y + (0.6 * boxes[i].dim.y), 
                             buf3, strlen(buf3));
             } else if (boxes[i].dim.x > minx && boxes[i].dim.y > miny) {
@@ -641,13 +641,13 @@ void render(void) {
     #endif
 
     // draw bouncy box if child window
-    if (g.master == 0) {
+    if (g.parent == 0) {
         // box
-        XSetForeground(g.dpy, g.gc, cube.color);
-        XFillRectangle(g.dpy, g.win, g.gc, cube.pos.x, cube.pos.y, cube.dim.x, cube.dim.y);
+        XSetForeground(g.dpy, g.gc, boxy.color);
+        XFillRectangle(g.dpy, g.win, g.gc, boxy.pos.x, boxy.pos.y, boxy.dim.x, boxy.dim.y);
         // box text
-        XSetForeground(g.dpy, g.gc, cube.text_color);
-        XDrawString(g.dpy, g.win, g.gc, (cube.pos.x + (cube.dim.x/2) - 24), (cube.pos.y + (cube.dim.y/2) + 5), buf6, strlen(buf6));
+        XSetForeground(g.dpy, g.gc, boxy.text_color);
+        XDrawString(g.dpy, g.win, g.gc, (boxy.pos.x + (boxy.dim.x/2) - 24), (boxy.pos.y + (boxy.dim.y/2) + 5), buf6, strlen(buf6));
 
     }
     
@@ -657,20 +657,20 @@ void physics(void)
 {
 
     // bouncy box animation on the child window
-    if (g.master == 0) {
-        if (!cube.winner)
-            cube.winner = check_winner();
+    if (g.parent == 0) {
+        if (!boxy.winner)
+            boxy.winner = check_winner();
 
 
-        if (!cube.winner) {
-            cube.pos.x += 1 * cube.dir.x;
-            cube.pos.y += 1 * cube.dir.y;
+        if (!boxy.winner) {
+            boxy.pos.x += 1 * boxy.dir.x;
+            boxy.pos.y += 1 * boxy.dir.y;
 
-            if (cube.pos.x > (g.xres-cube.dim.x) || cube.pos.x < 0) {
-                cube.dir.x *= -1;
+            if (boxy.pos.x > (g.xres-boxy.dim.x) || boxy.pos.x < 0) {
+                boxy.dir.x *= -1;
             }
-            if (cube.pos.y > (g.yres-cube.dim.y) || cube.pos.y < 0) {
-                cube.dir.y *= -1;
+            if (boxy.pos.y > (g.yres-boxy.dim.y) || boxy.pos.y < 0) {
+                boxy.dir.y *= -1;
             }    
 
         }
@@ -681,8 +681,8 @@ int check_winner(void)
 {
 
     int epsilon = 0;
-    int xtouch = (g.xres - (cube.pos.x + cube.dim.x) <= epsilon) || ((cube.pos.x) <= epsilon);
-    int ytouch = (g.yres - (cube.pos.y + cube.dim.y) <= epsilon) || ((cube.pos.y) <= epsilon);
+    int xtouch = (g.xres - (boxy.pos.x + boxy.dim.x) <= epsilon) || ((boxy.pos.x) <= epsilon);
+    int ytouch = (g.yres - (boxy.pos.y + boxy.dim.y) <= epsilon) || ((boxy.pos.y) <= epsilon);
 
 #ifdef BOX_DEBUG
     printf("(g.xres(%d) - (g.bx(%d) + g.bwidth(%d)) (*%d*) < epsilon(%d) = %d               \n", 
@@ -798,8 +798,8 @@ void checkMSG(void) {
             switch (mymsg.m.t) {
                 case COLOR_SIG:
                     // printf("Got a COLOR message\n");
-                    g.background_color = cube.text_color = mymsg.m.box_color;
-                    g.text_color = cube.color = mymsg.m.text_color;
+                    g.background_color = boxy.text_color = mymsg.m.box_color;
+                    g.text_color = boxy.color = mymsg.m.text_color;
                     
                     //printf("color: %d\n", g.)
                     break;

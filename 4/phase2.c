@@ -68,7 +68,7 @@ struct Global {
     int text_color;
 
     int mqid;
-    int master; // master controls all child windows
+    int parent; // master controls all child windows
     int num_children;
     int cpid_buf[MAX_CHILDREN]; // has all the cpids of children (max 20)
                                 // not really used now, probably will send child
@@ -116,12 +116,12 @@ int main(int argc, char *argv[], char *envp[]) {
             g.mytimer = 0; 
             printf("Usage: %s [timer duration (positive)]\n", argv[0]);
         }
-        g.master = 0;
+        g.parent = 0;
 
         // make thread to look for messages
     } else if (argc == 2) {
         g.mytimer = atoi(argv[1]);
-        g.master = 1;
+        g.parent = 1;
         // will create mqid
         if ( g.mytimer < 0 ) {
             g.mytimer = 0; 
@@ -129,7 +129,7 @@ int main(int argc, char *argv[], char *envp[]) {
         }
     } else if (argc == 1) {
         g.mytimer = 0;
-        g.master = 1;
+        g.parent = 1;
         // will create mqid and no timer
         printf("Usage: %s [timer duration (positive)]\n", argv[0]);
 
@@ -146,7 +146,7 @@ int main(int argc, char *argv[], char *envp[]) {
     strcpy(g.fname, argv[0]);
 
 
-    if (g.master == 1) {
+    if (g.parent == 1) {
         setupMQ();
 
     } else {
@@ -168,7 +168,7 @@ int main(int argc, char *argv[], char *envp[]) {
             if (--g.mytimer == 0)
                 kdone = 1;
         }
-        if ((g.master == 0)) {
+        if ((g.parent == 0)) {
             if (g.thread_active == 0) {
                 kdone = 1;  // quit msg sent by parents
                 // printf("threads_active already 0\n");
@@ -184,7 +184,7 @@ int main(int argc, char *argv[], char *envp[]) {
                 pthread_kill(g.tid, SIGUSR1);
             }
         }
-        if (g.master == 1) {
+        if (g.parent == 1) {
             parentCheckMSG();
         }
         usleep(4000);
@@ -195,7 +195,7 @@ int main(int argc, char *argv[], char *envp[]) {
 
     x11_cleanup_xwindows();
 
-    if (g.master == 1) {
+    if (g.parent == 1) {
         teardownMQ();
     } else {
         void* status;
@@ -273,7 +273,7 @@ void init_globals()
     g.num_children = 0;
 
     // set some initial colors
-    if (g.master == 1) {
+    if (g.parent == 1) {
         g.background_color = 0x00FFC72C;
         g.text_color = 0x00000000;
     } else {
@@ -318,7 +318,7 @@ int check_mouse(XEvent *e) {
     if (e->type == ButtonPress) {
         if (e->xbutton.button==1) { 
             // check for clicking boxes
-            if (g.master == 1) {
+            if (g.parent == 1) {
                 m = checkBoxClick(mx, my);
                 if ((m.box_num == (NUM_BOXES -1))
                     && (g.num_children > 0) ){
@@ -398,7 +398,7 @@ int check_mouse(XEvent *e) {
             g.mx = mx;
             g.my = my;
             sum += 1;
-            if (g.master == 1) {
+            if (g.parent == 1) {
                 int n = sum%3;
                 switch (n) {
                     case 0:
@@ -450,7 +450,7 @@ int check_keys(XEvent *e) {
             case XK_Escape:
                 // only let parent use escape button
                 // children must be sent the signal from the parent
-                if (g.master == 1) {
+                if (g.parent == 1) {
 
                     mymsg.type = (long)PTOC;
                     mymsg.m.t = KILL_SIG;
@@ -459,7 +459,7 @@ int check_keys(XEvent *e) {
                     }
 
                     return 1;
-                } else if (g.master == 0) {
+                } else if (g.parent == 0) {
 
                     mymsg.type = (long)CTOP;
                     mymsg.m.t = REMOVE_CHILD;
@@ -473,7 +473,7 @@ int check_keys(XEvent *e) {
                     return 1;
                 }
             case XK_c:
-                if (g.master == 1 && g.num_children < MAX_CHILDREN) {
+                if (g.parent == 1 && g.num_children < MAX_CHILDREN) {
                     int cpid = fork();
                     if (cpid == 0) {
                         start_child_win();
@@ -511,7 +511,7 @@ void render(void) {
     char buf5[32] = {0};
     struct msqid_ds msgbuf;
 
-    if ((g.master == 1) && (g.num_children == 0)) {
+    if ((g.parent == 1) && (g.num_children == 0)) {
         // parent before children spawn
         strcpy(buf, "Parent Window");
         strcpy(buf2, "Press 'c' to spawn child windows");
@@ -526,7 +526,7 @@ void render(void) {
             memset(buf5, 0, sizeof(buf5));
         }
 
-    } else if (g.master == 1 && g.num_children > 0) {
+    } else if (g.parent == 1 && g.num_children > 0) {
         // parent after children spawn with controls
         strcpy(buf, "Parent Window");
         strcpy(buf2, "Left-click mouse on colors");
@@ -551,7 +551,7 @@ void render(void) {
     XFillRectangle(g.dpy, g.win, g.gc, 0, 0, g.xres, g.yres);
 
     // draw boxes
-    if (g.master == 1 && g.num_children > 0) {
+    if (g.parent == 1 && g.num_children > 0) {
         for (int i = 0; i < NUM_BOXES; i++) {
             XSetForeground(g.dpy, g.gc, boxes[i].color);
             XFillRectangle(g.dpy, g.win, g.gc, 
