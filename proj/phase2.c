@@ -32,7 +32,7 @@ class: Operating Systems cmps3600
 #define MAX_CHILDREN 20
 #endif // !MAX_CHILDREN
 
-enum MsgType { PTOC = 1, CTOP = 2, COLOR_SIG=10, KILL_SIG=20, REMOVE_CHILD=30 };
+enum MsgType { PTOC = 1, CTOP = 2, COLOR_SIG=10, KILL_SIG=20, REMOVE_CHILD=30, MAKE_CHILD=40 };
 
 typedef struct {
     int x;
@@ -512,6 +512,10 @@ int check_keys(XEvent *e) {
                         // printf("g.num_children: %d\n",g.num_children);
                         // fflush(stdout);
                     }
+                } else if (g.parent == 0) { // child have parent make a new child
+                    mymsg.type = (long)CTOP;
+                    mymsg.m.t = MAKE_CHILD;
+                    msgsnd(g.mqid, &mymsg, sizeof(mymsg), 0);
                 }
                 break;
         }
@@ -856,10 +860,22 @@ void parentCheckMSG() {
                 
                 #endif
                 break;
+            case MAKE_CHILD:
+                if (g.num_children < MAX_CHILDREN) {
+                    int cpid = fork();
+                    if (cpid == 0) {
+                        start_child_win();
+                    } else {
+                        // record all the cpids of the children
+                        g.cpid_buf[g.num_children++] = cpid;
+                        // printf("g.num_children: %d\n",g.num_children);
+                        // fflush(stdout);
+                    }
+                }
+                break;
             default:
                 break;
         }
-
     }
 }
 
