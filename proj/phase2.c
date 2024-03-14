@@ -22,6 +22,7 @@ class: Operating Systems cmps3600
 #include <sys/types.h>
 
 // #define DEBUG
+// #define BOX_DEBUG
 
 #ifndef NUM_BOXES
 #define NUM_BOXES 10
@@ -53,9 +54,11 @@ struct WinMsg{
 struct Box {
     Vec2 pos;
     Vec2 dim;
+    Vec2 dir;
     int color;
     int text_color;
-} boxes[NUM_BOXES];
+    int winner;
+} boxes[NUM_BOXES], cube;
 
 struct Global {
     Display *dpy;
@@ -102,6 +105,7 @@ void checkMSG(void);
 void start_child_win();
 void parentCheckMSG();
 void sigusr1_handler(int sig);
+int check_winner(void);
 
 MsgData checkBoxClick(int mx, int my);
 
@@ -273,7 +277,7 @@ void init_globals()
 
     g.num_children = 0;
 
-    // set some initial colors
+    // set some initial colors for windows
     if (g.master == 1) {
         g.background_color = 0x00FFC72C;
         g.text_color = 0x00000000;
@@ -299,6 +303,20 @@ void init_globals()
     if (sigaction(SIGUSR1, &g.sa, NULL) == -1) {
         perror("sigaction SIGUSR1");
         exit(1);
+    }
+
+
+    // init cube if child
+
+    if (g.master == 0) {
+        cube.dim.x = cube.dim.y = 80;
+        cube.pos.x = rand() % (g.xres - cube.dim.x);
+        cube.pos.y = rand() % (g.yres - cube.dim.y);
+        cube.color = g.text_color;
+        cube.text_color = g.background_color;
+        cube.dir.x = (rand() % 2 == 0) ? 1 : -1;
+        cube.dir.y = (rand() % 2 == 0) ? 1 : -1;
+        cube.winner = 0;
     }
     
 }
@@ -510,6 +528,7 @@ void render(void) {
     char buf3[] = "X";
     char buf4[32] = {0};
     char buf5[32] = {0};
+    char buf6[] = "child";
     struct msqid_ds msgbuf;
 
     if ((g.master == 1) && (g.num_children == 0)) {
@@ -594,12 +613,72 @@ void render(void) {
                                 buf5, strlen(buf5));
     }
     #endif
+
+    // draw bouncy box if child window
+    if (g.master == 0) {
+        // box
+        XSetForeground(g.dpy, g.gc, cube.color);
+        XFillRectangle(g.dpy, g.win, g.gc, cube.pos.x, cube.pos.y, cube.dim.x, cube.dim.y);
+        // box text
+        XSetForeground(g.dpy, g.gc, cube.text_color);
+        XDrawString(g.dpy, g.win, g.gc, (cube.pos.x + (cube.dim.x/2) - 24), (cube.pos.y + (cube.dim.y/2) + 5), buf6, strlen(buf6));
+
+    }
+    
 }
 
 void physics(void)
 {
 
     // no animation for now
+    if (g.master == 0) {
+        if (!cube.winner)
+            cube.winner = check_winner();
+
+
+        if (!cube.winner) {
+            cube.pos.x += 1 * cube.dir.x;
+            cube.pos.y += 1 * cube.dir.y;
+
+            if (cube.pos.x > (g.xres-cube.dim.x) || cube.pos.x < 0) {
+                cube.dir.x *= -1;
+            }
+            if (cube.pos.y > (g.yres-cube.dim.y) || cube.pos.y < 0) {
+                cube.dir.y *= -1;
+            }    
+
+        }
+    }
+}
+
+int check_winner(void)
+{
+
+    int epsilon = 0;
+    int xtouch = (g.xres - (cube.pos.x + cube.dim.x) <= epsilon) || ((cube.pos.x) <= epsilon);
+    int ytouch = (g.yres - (cube.pos.y + cube.dim.y) <= epsilon) || ((cube.pos.y) <= epsilon);
+
+#ifdef BOX_DEBUG
+    printf("(g.xres(%d) - (g.bx(%d) + g.bwidth(%d)) (*%d*) < epsilon(%d) = %d               \n", 
+            g.xres, g.bx, g.bwidth, g.xres - (g.bx + g.bwidth), epsilon, 
+            (g.xres - (g.bx + g.bwidth) < epsilon)); 
+
+    printf("g.bx(%d) - g.bwidth(%d) (*%d*) < epsilon(%d) = %d               \n", 
+            g.bx, g.bwidth, (g.bx - g.bwidth), epsilon, 
+            (g.bx + g.bwidth) < epsilon); 
+
+    printf("g.yres(%d) - (g.by(%d) + g.bheight(%d) (*%d*) < epsilon(%d) = %d               \n", 
+            g.yres, g.by, g.bheight, g.yres - (g.by + g.bheight), epsilon, 
+            (g.yres - (g.by + g.bheight) < epsilon)); 
+
+    printf("g.by(%d) < epsilon(%d) = %d               \n", 
+            g.by, epsilon, (g.by)  < epsilon); 
+
+    //if (!g.winner)
+        printf("xtouch: %d, ytouch %d             \n", xtouch, ytouch);
+#endif
+
+    return (xtouch && ytouch);
 
 }
 
@@ -691,8 +770,9 @@ void checkMSG(void) {
             switch (mymsg.m.t) {
                 case COLOR_SIG:
                     // printf("Got a COLOR message\n");
-                    g.background_color = mymsg.m.box_color;
-                    g.text_color = mymsg.m.text_color;
+                    g.background_color = cube.text_color = mymsg.m.box_color;
+                    g.text_color = cube.color = mymsg.m.text_color;
+                    
                     //printf("color: %d\n", g.)
                     break;
                 case KILL_SIG:
