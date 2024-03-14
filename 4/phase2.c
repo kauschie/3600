@@ -2,7 +2,7 @@
  *
 Name: Michael Kausch
 Assignment: Project
-date: 3/1/24
+date: 3/7/24
 professor: Gordon
 class: Operating Systems cmps3600
 
@@ -18,12 +18,14 @@ class: Operating Systems cmps3600
 #include <sys/msg.h>
 #include <pthread.h>
 #include <sys/wait.h>
-
+#include <signal.h>
+#include <sys/types.h>
 
 // #define DEBUG
+// #define BOX_DEBUG
 
 #ifndef NUM_BOXES
-#define NUM_BOXES 10
+#define NUM_BOXES 20
 #endif //  NUM_BOXES
 
 #ifndef MAX_CHILDREN
@@ -52,9 +54,11 @@ struct WinMsg{
 struct Box {
     Vec2 pos;
     Vec2 dim;
+    Vec2 dir;
     int color;
     int text_color;
-} boxes[NUM_BOXES];
+    int winner;
+} boxes[NUM_BOXES], boxy;
 
 struct Global {
     Display *dpy;
@@ -68,7 +72,7 @@ struct Global {
     int text_color;
 
     int mqid;
-    int parent; // master controls all child windows
+    int parent; // parent controls all child windows
     int num_children;
     int cpid_buf[MAX_CHILDREN]; // has all the cpids of children (max 20)
                                 // not really used now, probably will send child
@@ -78,6 +82,8 @@ struct Global {
     int mytimer;        // current timer // 0 -> infinite
     char fname[128];    // file path from main
     char ** envp;       // environment params so windows can open via ssh 
+   
+    // mask vars
     struct sigaction sa;
     sigset_t mask;
     pthread_t tid;
@@ -101,9 +107,8 @@ void checkMSG(void);
 void start_child_win();
 void parentCheckMSG();
 void sigusr1_handler(int sig);
-
+int check_winner(void);
 MsgData checkBoxClick(int mx, int my);
-
 
 int main(int argc, char *argv[], char *envp[]) {
 
@@ -243,18 +248,27 @@ void x11_init_xwindows(void)
 
 }
 
+void randomize_colors() {
+    int MAX_COLOR = 0x00FFFFFF;
+    for (int i = 0; i < NUM_BOXES; i++) {
+        boxes[i].color = rand()&MAX_COLOR;
+        boxes[i].text_color = rand()&MAX_COLOR;
+    }
+
+}
+
 void init_globals()
 {
     srand(time(NULL));
     int MAX_COLOR = 0x00FFFFFF;
 
     // init box stuff
-    int colors[NUM_BOXES];
-    int text_colors[NUM_BOXES];
-    for (int i = 0; i < NUM_BOXES; i++) {
-        colors[i] = rand()&MAX_COLOR;
-        text_colors[i] = rand()&MAX_COLOR;
-    }
+    // int colors[NUM_BOXES];
+    // int text_colors[NUM_BOXES];
+    // for (int i = 0; i < NUM_BOXES; i++) {
+    //     colors[i] = rand()&MAX_COLOR;
+    //     text_colors[i] = rand()&MAX_COLOR;
+    // }
 
     const int XPAD = 10, HEIGHT = 80, XSTART = 12, 
           WIDTH = (int)((g.xres - (XSTART) - (NUM_BOXES*XPAD))/NUM_BOXES), 
@@ -266,13 +280,13 @@ void init_globals()
         boxes[i].dim.y = HEIGHT;
         boxes[i].pos.x = XSTART + (i * WIDTH) + (i* XPAD);
         boxes[i].pos.y = YSTART;
-        boxes[i].color = colors[i];
-        boxes[i].text_color = text_colors[i];
+        boxes[i].color = rand() & MAX_COLOR;
+        boxes[i].text_color = rand() & MAX_COLOR;
     }
 
     g.num_children = 0;
 
-    // set some initial colors
+    // set some initial colors for windows
     if (g.parent == 1) {
         g.background_color = 0x00FFC72C;
         g.text_color = 0x00000000;
@@ -290,14 +304,28 @@ void init_globals()
 
 
     g.sa.sa_handler = sigusr1_handler;
-    // g.sa.sa_flags = SA_RESTART;
     // block all signals while in signal handler
     sigfillset(&g.sa.sa_mask);
+    g.sa.sa_flags = 0;
 
     // register sigaction struct with signal handler
     if (sigaction(SIGUSR1, &g.sa, NULL) == -1) {
         perror("sigaction SIGUSR1");
         exit(1);
+    }
+
+
+    // init boxy if child
+
+    if (g.parent == 0) {
+        boxy.dim.x = boxy.dim.y = 80;
+        boxy.pos.x = rand() % (g.xres - boxy.dim.x);
+        boxy.pos.y = rand() % (g.yres - boxy.dim.y);
+        boxy.color = g.text_color;
+        boxy.text_color = g.background_color;
+        boxy.dir.x = (rand() % 2 == 0) ? 1 : -1;
+        boxy.dir.y = (rand() % 2 == 0) ? 1 : -1;
+        boxy.winner = 0;
     }
     
 }
@@ -446,6 +474,7 @@ int check_keys(XEvent *e) {
     if (e->type == KeyPress) {
         switch (key) {
             case XK_1:          
+                randomize_colors();
                 break;
             case XK_Escape:
                 // only let parent use escape button
@@ -509,6 +538,9 @@ void render(void) {
     char buf3[] = "X";
     char buf4[32] = {0};
     char buf5[32] = {0};
+    char buf6[] = "child";
+    char buf7[] = "Press '1' to randomize the colors";
+    char buf8[] = "#";
     struct msqid_ds msgbuf;
 
     if ((g.parent == 1) && (g.num_children == 0)) {
@@ -551,6 +583,8 @@ void render(void) {
     XFillRectangle(g.dpy, g.win, g.gc, 0, 0, g.xres, g.yres);
 
     // draw boxes
+    int minx = 10, miny = 10;
+
     if (g.parent == 1 && g.num_children > 0) {
         for (int i = 0; i < NUM_BOXES; i++) {
             XSetForeground(g.dpy, g.gc, boxes[i].color);
@@ -562,11 +596,21 @@ void render(void) {
                 XSetForeground(g.dpy, g.gc, g.text_color);
                 x11_setFont(14);
                 XDrawString(g.dpy, g.win, g.gc, 
-                            boxes[i].pos.x + (0.4 * boxes[i].dim.x), 
+                            boxes[i].pos.x + (0.4 * boxes[i].dim.x), // try to center it somewhat
                             boxes[i].pos.y + (0.6 * boxes[i].dim.y), 
                             buf3, strlen(buf3));
+            } else if (boxes[i].dim.x > minx && boxes[i].dim.y > miny) {
+                XSetForeground(g.dpy, g.gc, boxes[i].text_color);
+                x11_setFont(14);
+                XDrawString(g.dpy, g.win, g.gc, 
+                            boxes[i].pos.x + (0.4 * boxes[i].dim.x), 
+                            boxes[i].pos.y + (0.6 * boxes[i].dim.y), 
+                            buf8, strlen(buf8));
             }
         }
+
+        XSetForeground(g.dpy, g.gc, g.text_color);
+        XDrawString(g.dpy, g.win, g.gc, 60, 65, buf7, strlen(buf7));
 
     }
 
@@ -577,7 +621,6 @@ void render(void) {
         XDrawString(g.dpy, g.win, g.gc, 30, 40, buf, strlen(buf));
     if (strlen(buf2) > 0)
         XDrawString(g.dpy, g.win, g.gc, 60, 90, buf2, strlen(buf2));
-    #ifdef DEBUG
     if (strlen(buf4) > 0) {
 
         XDrawString(g.dpy, g.win, g.gc, 
@@ -586,6 +629,9 @@ void render(void) {
                                 40,
                                 buf4, strlen(buf4));
     }
+    
+
+    #ifdef DEBUG
     if (strlen(buf5) > 0) {
         XDrawString(g.dpy, g.win, g.gc, 
                                 (int)(g.xres*0.6), 
@@ -593,12 +639,72 @@ void render(void) {
                                 buf5, strlen(buf5));
     }
     #endif
+
+    // draw bouncy box if child window
+    if (g.parent == 0) {
+        // box
+        XSetForeground(g.dpy, g.gc, boxy.color);
+        XFillRectangle(g.dpy, g.win, g.gc, boxy.pos.x, boxy.pos.y, boxy.dim.x, boxy.dim.y);
+        // box text
+        XSetForeground(g.dpy, g.gc, boxy.text_color);
+        XDrawString(g.dpy, g.win, g.gc, (boxy.pos.x + (boxy.dim.x/2) - 24), (boxy.pos.y + (boxy.dim.y/2) + 5), buf6, strlen(buf6));
+
+    }
+    
 }
 
 void physics(void)
 {
 
-    // no animation for now
+    // bouncy box animation on the child window
+    if (g.parent == 0) {
+        if (!boxy.winner)
+            boxy.winner = check_winner();
+
+
+        if (!boxy.winner) {
+            boxy.pos.x += 1 * boxy.dir.x;
+            boxy.pos.y += 1 * boxy.dir.y;
+
+            if (boxy.pos.x > (g.xres-boxy.dim.x) || boxy.pos.x < 0) {
+                boxy.dir.x *= -1;
+            }
+            if (boxy.pos.y > (g.yres-boxy.dim.y) || boxy.pos.y < 0) {
+                boxy.dir.y *= -1;
+            }    
+
+        }
+    }
+}
+
+int check_winner(void)
+{
+
+    int epsilon = 0;
+    int xtouch = (g.xres - (boxy.pos.x + boxy.dim.x) <= epsilon) || ((boxy.pos.x) <= epsilon);
+    int ytouch = (g.yres - (boxy.pos.y + boxy.dim.y) <= epsilon) || ((boxy.pos.y) <= epsilon);
+
+#ifdef BOX_DEBUG
+    printf("(g.xres(%d) - (g.bx(%d) + g.bwidth(%d)) (*%d*) < epsilon(%d) = %d               \n", 
+            g.xres, g.bx, g.bwidth, g.xres - (g.bx + g.bwidth), epsilon, 
+            (g.xres - (g.bx + g.bwidth) < epsilon)); 
+
+    printf("g.bx(%d) - g.bwidth(%d) (*%d*) < epsilon(%d) = %d               \n", 
+            g.bx, g.bwidth, (g.bx - g.bwidth), epsilon, 
+            (g.bx + g.bwidth) < epsilon); 
+
+    printf("g.yres(%d) - (g.by(%d) + g.bheight(%d) (*%d*) < epsilon(%d) = %d               \n", 
+            g.yres, g.by, g.bheight, g.yres - (g.by + g.bheight), epsilon, 
+            (g.yres - (g.by + g.bheight) < epsilon)); 
+
+    printf("g.by(%d) < epsilon(%d) = %d               \n", 
+            g.by, epsilon, (g.by)  < epsilon); 
+
+    //if (!g.winner)
+        printf("xtouch: %d, ytouch %d             \n", xtouch, ytouch);
+#endif
+
+    return (xtouch && ytouch);
 
 }
 
@@ -634,8 +740,6 @@ MsgData checkBoxClick(int mx, int my) {
             m.text_color = boxes[i].text_color;
             m.box_num = i;
 
-
-
             return m;
         }
     }
@@ -667,6 +771,10 @@ void teardownMQ(void) {
 
 void checkMSG(void) {
 
+    // setup signal mask for this thread
+    // signal is necessary to kill thread while blocked on msgrcv when child terms
+    // after the user hits escape while on the window
+
     sigset_t mask;
     sigemptyset(&mask);
     sigaddset(&mask, SIGUSR1);
@@ -690,8 +798,9 @@ void checkMSG(void) {
             switch (mymsg.m.t) {
                 case COLOR_SIG:
                     // printf("Got a COLOR message\n");
-                    g.background_color = mymsg.m.box_color;
-                    g.text_color = mymsg.m.text_color;
+                    g.background_color = boxy.text_color = mymsg.m.box_color;
+                    g.text_color = boxy.color = mymsg.m.text_color;
+                    
                     //printf("color: %d\n", g.)
                     break;
                 case KILL_SIG:
@@ -703,7 +812,8 @@ void checkMSG(void) {
                     // printf("Got a REMOVE CHILD message\n");
                     // resend message if it received it in err... don't think
                     // that is happening currently and it never gets printed out
-                    // just a sanity check
+                    // just a sanity check...
+                    // ... should work like rethrowing a caught exception if it ever happens
                     msgsnd(g.mqid, &mymsg, sizeof(mymsg), 0);
                     break;
                 default:
