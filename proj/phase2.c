@@ -248,18 +248,27 @@ void x11_init_xwindows(void)
 
 }
 
+void randomize_colors() {
+    int MAX_COLOR = 0x00FFFFFF;
+    for (int i = 0; i < NUM_BOXES; i++) {
+        boxes[i].color = rand()&MAX_COLOR;
+        boxes[i].text_color = rand()&MAX_COLOR;
+    }
+
+}
+
 void init_globals()
 {
     srand(time(NULL));
     int MAX_COLOR = 0x00FFFFFF;
 
     // init box stuff
-    int colors[NUM_BOXES];
-    int text_colors[NUM_BOXES];
-    for (int i = 0; i < NUM_BOXES; i++) {
-        colors[i] = rand()&MAX_COLOR;
-        text_colors[i] = rand()&MAX_COLOR;
-    }
+    // int colors[NUM_BOXES];
+    // int text_colors[NUM_BOXES];
+    // for (int i = 0; i < NUM_BOXES; i++) {
+    //     colors[i] = rand()&MAX_COLOR;
+    //     text_colors[i] = rand()&MAX_COLOR;
+    // }
 
     const int XPAD = 10, HEIGHT = 80, XSTART = 12, 
           WIDTH = (int)((g.xres - (XSTART) - (NUM_BOXES*XPAD))/NUM_BOXES), 
@@ -271,8 +280,8 @@ void init_globals()
         boxes[i].dim.y = HEIGHT;
         boxes[i].pos.x = XSTART + (i * WIDTH) + (i* XPAD);
         boxes[i].pos.y = YSTART;
-        boxes[i].color = colors[i];
-        boxes[i].text_color = text_colors[i];
+        boxes[i].color = rand() & MAX_COLOR;
+        boxes[i].text_color = rand() & MAX_COLOR;
     }
 
     g.num_children = 0;
@@ -465,6 +474,7 @@ int check_keys(XEvent *e) {
     if (e->type == KeyPress) {
         switch (key) {
             case XK_1:          
+                randomize_colors();
                 break;
             case XK_Escape:
                 // only let parent use escape button
@@ -529,6 +539,7 @@ void render(void) {
     char buf4[32] = {0};
     char buf5[32] = {0};
     char buf6[] = "child";
+    char buf7[] = "Press '1' to randomize the colors";
     struct msqid_ds msgbuf;
 
     if ((g.master == 1) && (g.num_children == 0)) {
@@ -588,6 +599,9 @@ void render(void) {
             }
         }
 
+        XSetForeground(g.dpy, g.gc, g.text_color);
+        XDrawString(g.dpy, g.win, g.gc, 60, 65, buf7, strlen(buf7));
+
     }
 
     // draw text
@@ -605,6 +619,8 @@ void render(void) {
                                 40,
                                 buf4, strlen(buf4));
     }
+    
+
     #ifdef DEBUG
     if (strlen(buf5) > 0) {
         XDrawString(g.dpy, g.win, g.gc, 
