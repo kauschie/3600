@@ -35,6 +35,7 @@ struct Global {
     int xdirection, ydirection;
     int cpid;
     int hasSpawned;
+    int printedUsage;
 } g;
 
 void x11_cleanup_xwindows(void);
@@ -67,7 +68,11 @@ int main(int argc, char *argv[], char *envp[])
             mytimer = num; 
         }
     } else {
-        printf("Usage: %s n\n", argv[0]);
+        if (!g.printedUsage) {
+            printf("Usage: %s n\n", argv[0]);
+
+            g.printedUsage = 1;
+        }
     }
 
 	XEvent e;
