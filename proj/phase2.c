@@ -25,7 +25,7 @@ class: Operating Systems cmps3600
 // #define BOX_DEBUG
 
 #ifndef NUM_BOXES
-#define NUM_BOXES 10
+#define NUM_BOXES 20
 #endif //  NUM_BOXES
 
 #ifndef MAX_CHILDREN
@@ -540,6 +540,7 @@ void render(void) {
     char buf5[32] = {0};
     char buf6[] = "child";
     char buf7[] = "Press '1' to randomize the colors";
+    char buf8[] = "#";
     struct msqid_ds msgbuf;
 
     if ((g.master == 1) && (g.num_children == 0)) {
@@ -582,6 +583,8 @@ void render(void) {
     XFillRectangle(g.dpy, g.win, g.gc, 0, 0, g.xres, g.yres);
 
     // draw boxes
+    int minx = 10, miny = 10;
+
     if (g.master == 1 && g.num_children > 0) {
         for (int i = 0; i < NUM_BOXES; i++) {
             XSetForeground(g.dpy, g.gc, boxes[i].color);
@@ -596,6 +599,13 @@ void render(void) {
                             boxes[i].pos.x + (0.4 * boxes[i].dim.x), 
                             boxes[i].pos.y + (0.6 * boxes[i].dim.y), 
                             buf3, strlen(buf3));
+            } else if (boxes[i].dim.x > minx && boxes[i].dim.y > miny) {
+                XSetForeground(g.dpy, g.gc, boxes[i].text_color);
+                x11_setFont(14);
+                XDrawString(g.dpy, g.win, g.gc, 
+                            boxes[i].pos.x + (0.4 * boxes[i].dim.x), 
+                            boxes[i].pos.y + (0.6 * boxes[i].dim.y), 
+                            buf8, strlen(buf8));
             }
         }
 
@@ -646,7 +656,7 @@ void render(void) {
 void physics(void)
 {
 
-    // no animation for now
+    // bouncy box animation on the child window
     if (g.master == 0) {
         if (!cube.winner)
             cube.winner = check_winner();
@@ -730,8 +740,6 @@ MsgData checkBoxClick(int mx, int my) {
             m.text_color = boxes[i].text_color;
             m.box_num = i;
 
-
-
             return m;
         }
     }
@@ -762,6 +770,10 @@ void teardownMQ(void) {
 }
 
 void checkMSG(void) {
+
+    // setup signal mask for this thread
+    // signal is necessary to kill thread while blocked on msgrcv when child terms
+    // after the user hits escape while on the window
 
     sigset_t mask;
     sigemptyset(&mask);
@@ -800,7 +812,8 @@ void checkMSG(void) {
                     // printf("Got a REMOVE CHILD message\n");
                     // resend message if it received it in err... don't think
                     // that is happening currently and it never gets printed out
-                    // just a sanity check
+                    // just a sanity check...
+                    // ... should work like rethrowing a caught exception if it ever happens
                     msgsnd(g.mqid, &mymsg, sizeof(mymsg), 0);
                     break;
                 default:
