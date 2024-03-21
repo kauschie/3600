@@ -34,6 +34,13 @@ Assignment: rvlab8.c
 #define DEBUG 0
 #define BUFSZ 100
 
+union {
+	int val;
+	struct semid_ds *buf;
+	unsigned short *array;
+	struct seminfo *__buf;
+} my_semun;
+
 union semun {
     int val;                 /* value for SETVAL */
     struct semid_ds *buf;    /* Buffer for IPC_STAT, IPC_SET */

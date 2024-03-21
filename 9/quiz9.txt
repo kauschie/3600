@@ -1,0 +1,28 @@
+// Name: Michael Kausch
+// Assignment: Quiz 9
+// Date: 3/18/24
+// Class: Operating Systmes
+// Instructor: Professor Gordon Griesel
+
+1. Semaphores always protect a shared resource and in this case semaphore x's 
+    critical section involves the readcount variable and ensures that it is
+        updated properly.
+
+2. wsem is protecting the shared buffer involved in the read and write operations 
+    READUNIT() and WRITEUNIT()
+
+3. The first reader waits for wsem "if (readcount == 1)"
+
+4. The last one
+
+5. one
+
+6. all of them
+
+7. That the first reader will be allowed in immediately to begin waiting for the
+    wsem semaphore. Once he's able to grab it he lets the rest of the readers in.
+
+8. Writers are subject to starvation because once one reader begins reading the
+    readers can retrain control of the data as long is one reader is still reading
+            -- page 697 in my ebook version (just after the algorithm)
+
