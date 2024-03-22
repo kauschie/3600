@@ -41,6 +41,7 @@
 #include <sys/fcntl.h>
 #include <sys/types.h>
 
+
 #ifndef NCARS
 #define NCARS 8
 #endif
@@ -62,6 +63,7 @@ void physics(void);
 void render(void);
 void init_sem(void);
 void *light(void *arg);
+void x11_setFont(unsigned int idx);
 //
 //---------------------------------
 //globals to make your life easier.
@@ -84,6 +86,7 @@ struct Global {
 	size_t numCross[4];
 	int light_active;
 	enum Direction DIR;
+	int numLeft;
 } g;
 
 struct Box {
@@ -308,6 +311,7 @@ void init_xwindows(int w, int h)
 	//To intercept user clicking x in title bar.
     g.wm_delete_window = XInternAtom(g.dpy, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(g.dpy, g.win, &g.wm_delete_window, 1);
+	g.numLeft = 1000;
 }
 
 void fillRectangle(int x, int y, int w, int h)
@@ -564,6 +568,7 @@ void physics()
 
 void render(void)
 {
+	x11_setFont(8);
 	clear_screen();
 	XSetForeground(g.dpy, g.gc, 0x00ff0000);
 	//draw intersection
@@ -662,22 +667,39 @@ void render(void)
 	int col1;
 	char str2[] = "U/D";
 	int col2;
+	char str3[100];
+
+	// printf("\rg.numLeft: %d  ", g.numLeft);
+	// fflush(stdout);
 
 	if (g.DIR == LR) {
 		// strcpy(str1, "L/R");
-		col1 = 0x0000ff00;
+		if (g.numLeft > 5) {
+			col1 = 0x0000ff00;
+		} else {
+			col1 = 0x00ffff00;
+		}
 		col2 = 0x00ff0000;
 		// strcpy(str2, "U/D");
 	} else {
 		// strcpy(str1, "U/D");
 		col1 = 0x00ff0000;
-		col2 = 0x0000ff00;
+		if (g.numLeft > 5) {
+			col2 = 0x0000ff00;
+		} else {
+			col2 = 0x00ffff00;
+		}
 		// strcpy(str2, "L/R");
 	}
-	// greenlight
+
+	sprintf(str3, "Num left: %d", g.numLeft);
+	XSetForeground(g.dpy, g.gc, 0x00FFFFFF);
+	drawString(g.xres*(3.0/4)-10, g.yres*(3.0/4) - 40, str3);
+
+	// Lights
 	int width = 60;
 	int height = 60;
-	int light_space = 80;
+	int light_space = 70;
 	XSetForeground(g.dpy, g.gc, col1);
 	fillRectangle(g.xres*(3.0/4)- (width>>1), g.yres*(3.0/4)-(height>>1), width, height);
 
@@ -688,6 +710,8 @@ void render(void)
 	XSetForeground(g.dpy, g.gc, 0x00000000);
 	drawString(g.xres*(3.0/4)-10, g.yres*(3.0/4) + 5, str1);
 	drawString(g.xres*(3.0/4)-10, g.yres*(3.0/4) + light_space + 5, str2);
+
+
 #endif
 
 
@@ -767,15 +791,19 @@ void *light(void *arg)
 			numPassed = g.numCross[1] + g.numCross[3];	// u/d cars
 		}
 
-		printf("\rnumPassed %d:: start %d", numPassed, start);
-		fflush(stdout);
+		// printf("\rnumPassed %d:: start %d", numPassed, start);
+		// fflush(stdout);
+		g.numLeft = (start + CARCONTROL) - numPassed;
 
-		if (numPassed >= start+CARCONTROL) {
+		// if (numPassed >= start+CARCONTROL) {
+		if (g.numLeft <= 0) {
 			if (g.DIR == LR) {
 				start = numPassed = g.numCross[1] + g.numCross[3];	
+				g.numLeft = CARCONTROL;
 				g.DIR = UD;
 			} else {
 				start = numPassed = g.numCross[0] + g.numCross[2];
+				g.numLeft = CARCONTROL;
 				g.DIR = LR;
 			}
 		}
@@ -789,6 +817,13 @@ void *light(void *arg)
 
 
 
+void x11_setFont(unsigned int idx) {
+    char *fonts[] = { "fixed","5x8","6x9","6x10","6x12","6x13","6x13bold",
+        "7x13","7x13bold","7x14","8x13","8x13bold","8x16","9x15","9x15bold",
+        "10x20","12x24" };
+    Font f = XLoadFont(g.dpy, fonts[idx]);
+    XSetFont(g.dpy, g.gc, f);
+}
 
 
 
