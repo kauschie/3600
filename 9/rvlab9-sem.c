@@ -674,7 +674,7 @@ void render(void)
 
 	if (g.DIR == LR) {
 		// strcpy(str1, "L/R");
-		if (g.numLeft > 5) {
+		if (g.numLeft > 4) {
 			col1 = 0x0000ff00;
 		} else {
 			col1 = 0x00ffff00;
@@ -684,7 +684,7 @@ void render(void)
 	} else {
 		// strcpy(str1, "U/D");
 		col1 = 0x00ff0000;
-		if (g.numLeft > 5) {
+		if (g.numLeft > 4) {
 			col2 = 0x0000ff00;
 		} else {
 			col2 = 0x00ffff00;
@@ -692,7 +692,7 @@ void render(void)
 		// strcpy(str2, "L/R");
 	}
 
-	sprintf(str3, "Num left: %d", g.numLeft);
+	sprintf(str3, "Time left: %d", g.numLeft);
 	XSetForeground(g.dpy, g.gc, 0x00FFFFFF);
 	drawString(g.xres*(3.0/4)-10, g.yres*(3.0/4) - 40, str3);
 
@@ -779,34 +779,43 @@ void *light(void *arg)
 	// fflush(stdout);
 	srand(time(NULL));
 	g.DIR = ( rand()%2 == 0 ? LR : UD );
-	int numPassed = 0;
-	int start = 0;
-	const int TRAFFICFLOW = 12;
+	// int numPassed = 0;
+	// int start = 0;
+	time_t start, now;
 
+	const int TRAFFICFLOW = 10;	// num seconds per light cycle
+
+	time(&start);
 	while (g.light_active == 1)
 	{
+		time(&now);
+		// if (g.DIR == LR) {
+		// 	numPassed = g.numCross[0] + g.numCross[2];	// l/r cars
+		// } else {
+		// 	numPassed = g.numCross[1] + g.numCross[3];	// u/d cars
+		// }
 
-		if (g.DIR == LR) {
-			numPassed = g.numCross[0] + g.numCross[2];	// l/r cars
-		} else {
-			numPassed = g.numCross[1] + g.numCross[3];	// u/d cars
-		}
 
 		// printf("\rnumPassed %d:: start %d", numPassed, start);
 		// fflush(stdout);
-		g.numLeft = (start + TRAFFICFLOW) - numPassed;
+		// g.numLeft = (start + TRAFFICFLOW) - numPassed;
+		g.numLeft = TRAFFICFLOW - difftime(now, start);
 
-		// if (numPassed >= start+TRAFFICFLOW) {
 		if (g.numLeft <= 0) {
 			if (g.DIR == LR) {
-				start = numPassed = g.numCross[1] + g.numCross[3];	
-				g.numLeft = TRAFFICFLOW;
+				// start = numPassed = g.numCross[1] + g.numCross[3];	
+				// g.numLeft = TRAFFICFLOW;
+
+
 				g.DIR = UD;
 			} else {
-				start = numPassed = g.numCross[0] + g.numCross[2];
-				g.numLeft = TRAFFICFLOW;
+				// start = numPassed = g.numCross[0] + g.numCross[2];
+				// g.numLeft = TRAFFICFLOW;
+
+
 				g.DIR = LR;
 			}
+			time(&start);
 		}
 		
 		usleep(4000);
