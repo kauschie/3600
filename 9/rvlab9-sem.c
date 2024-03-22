@@ -380,7 +380,7 @@ void init(void)
 
 		//Car heading West
 		if (i%4 == 0) {
-			cars[i].w += rand() % 4 + 14;
+			cars[i].w += (rand() % 4) + 14;
 			cars[i].vel[0] = -(rand() % 3 + 1);
 			cars[i].vel[1] = 0;
 			cars[i].d = LR;
@@ -394,9 +394,9 @@ void init(void)
 		} else if (i%4 == 1) {
 			//Car heading South
 			// i = 1;
-			cars[i].h += rand() % 4 + 14;
+			cars[i].h += (rand() % 4) + 14;
 			cars[i].vel[0] = 0;
-			cars[i].vel[1] = rand() % 3 + 1;
+			cars[i].vel[1] = (rand() % 3) + 1;
 			cars[i].d = UD;
 
 			if (i%4 == i) {
@@ -411,8 +411,8 @@ void init(void)
 		} else if (i%4 == 2) {
 			//Car heading East
 			// i = 2;
-			cars[i].w += rand() % 4 + 14;
-			cars[i].vel[0] = rand() % 3 + 1;
+			cars[i].w += (rand() % 4) + 14;
+			cars[i].vel[0] = (rand() % 3) + 1;
 			cars[i].vel[1] = 0;
 			cars[i].d = LR;
 
@@ -426,7 +426,7 @@ void init(void)
 		} else if (i%4 == 3) {
 			//Car heading North
 			// i = 3;
-			cars[i].h += rand() % 4 + 14;
+			cars[i].h += (rand() % 4) + 14;
 			cars[i].vel[0] = 0;
 			cars[i].vel[1] = -(rand() % 3 + 1);
 			cars[i].d = UD;
@@ -706,15 +706,16 @@ void render(void)
 	XSetForeground(g.dpy, g.gc, col2);
 	fillRectangle(g.xres*(3.0/4)- (width>>1), g.yres*(3.0/4)-(height>>1) + light_space, width, height);
 
-
+	x11_setFont(16);
 	XSetForeground(g.dpy, g.gc, 0x00000000);
-	drawString(g.xres*(3.0/4)-10, g.yres*(3.0/4) + 5, str1);
-	drawString(g.xres*(3.0/4)-10, g.yres*(3.0/4) + light_space + 5, str2);
+	drawString(g.xres*(3.0/4)-16, g.yres*(3.0/4) + 8, str1);
+	drawString(g.xres*(3.0/4)-16, g.yres*(3.0/4) + light_space + 8, str2);
 
 
 #endif
 
 
+	x11_setFont(8);
 
 	//Key options...
 	int y = 20;
@@ -774,13 +775,13 @@ void init_sem(void)
 #if USELIGHT
 void *light(void *arg)
 {
-	printf("light thread started\n");
-	fflush(stdout);
+	// printf("light thread started\n");
+	// fflush(stdout);
 	srand(time(NULL));
 	g.DIR = ( rand()%2 == 0 ? LR : UD );
 	int numPassed = 0;
 	int start = 0;
-	const int CARCONTROL = 12;
+	const int TRAFFICFLOW = 12;
 
 	while (g.light_active == 1)
 	{
@@ -793,17 +794,17 @@ void *light(void *arg)
 
 		// printf("\rnumPassed %d:: start %d", numPassed, start);
 		// fflush(stdout);
-		g.numLeft = (start + CARCONTROL) - numPassed;
+		g.numLeft = (start + TRAFFICFLOW) - numPassed;
 
-		// if (numPassed >= start+CARCONTROL) {
+		// if (numPassed >= start+TRAFFICFLOW) {
 		if (g.numLeft <= 0) {
 			if (g.DIR == LR) {
 				start = numPassed = g.numCross[1] + g.numCross[3];	
-				g.numLeft = CARCONTROL;
+				g.numLeft = TRAFFICFLOW;
 				g.DIR = UD;
 			} else {
 				start = numPassed = g.numCross[0] + g.numCross[2];
-				g.numLeft = CARCONTROL;
+				g.numLeft = TRAFFICFLOW;
 				g.DIR = LR;
 			}
 		}
