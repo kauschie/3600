@@ -106,7 +106,7 @@ int main(int argc, char *argv[])
 
 	close(fd);
 	close(fdout);
-	munmap(src, length+offset-pa_offset);
+	munmap(src, length + offset - pa_offset);
 	munmap(dst, length + offset - pa_offset);
 
 	exit(EXIT_SUCCESS);
