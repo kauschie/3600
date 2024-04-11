@@ -54,7 +54,7 @@ typedef struct {
 } Dotdata;
 
 #define NUM_THRDS 4
-#define VEC_LEN 122
+#define VEC_LEN 134
 Dotdata dotstr;               /* global so all threads can see and use it */
 pthread_t callThd[NUM_THRDS];
 pthread_mutex_t mutexsum;     /* use a mutex to protect the dot product */
