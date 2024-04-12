@@ -88,7 +88,7 @@ int main(void)
         write(fd, buf, strlen(buf));
 
         // block and receive message from parent then write
-        msgrcv(mqid, &mymsg, sizeof(mymsg), 0, 0); /* blocks on queue */
+        msgrcv(mqid, &mymsg, sizeof(mymsg), 1, 0); /* blocks on queue */ 
         write(fd, mymsg.text, strlen(mymsg.text));
 
         // cleanup
