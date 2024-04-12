@@ -1,5 +1,5 @@
 
-all: phase1 phase2
+all: phase1 phase2 moveit
 
 phase1: phase1.c
 	gcc phase1.c -Wall -lX11 -o phase1
@@ -9,7 +9,9 @@ phase2: phase2.c
 	gcc phase2.c -g -Wall -lX11 -lpthread -o dbg_phase2 -DNUM_CHILDREN=20 -DNUM_BOXES=15 -DDEBUG
 	chmod 777 phase2
 
+moveit: moveit.c
+	gcc moveit.c -g -Wall -lX11 -lpthread -o moveit -DNUM_CHILDREN=5 -DNUM_BOXES=5
 
 clean:
-	rm -f phase1 phase2
+	rm -f phase1 phase2 moveit
 	./cleanipc.sh mkausch
