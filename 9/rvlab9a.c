@@ -87,6 +87,7 @@ struct Global {
 	int light_active;
 	enum Direction DIR;
 	int numLeft;
+	pthread_mutex_t mut;
 } g;
 
 struct Box {

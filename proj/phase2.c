@@ -72,7 +72,7 @@ struct Global {
     int text_color;
 
     int mqid;
-    int parent; // parent controls all child windows
+    int isParent; // parent controls all child windows
     int num_children;
     int cpid_buf[MAX_CHILDREN]; // has all the cpids of children (max 20)
                                 // not really used now, probably will send child
@@ -121,12 +121,12 @@ int main(int argc, char *argv[], char *envp[]) {
             g.mytimer = 0; 
             printf("Usage: %s [timer duration (positive)]\n", argv[0]);
         }
-        g.parent = 0;
+        g.isParent = 0;
 
         // make thread to look for messages
     } else if (argc == 2) {
         g.mytimer = atoi(argv[1]);
-        g.parent = 1;
+        g.isParent = 1;
         // will create mqid
         if ( g.mytimer < 0 ) {
             g.mytimer = 0; 
@@ -134,7 +134,7 @@ int main(int argc, char *argv[], char *envp[]) {
         }
     } else if (argc == 1) {
         g.mytimer = 0;
-        g.parent = 1;
+        g.isParent = 1;
         // will create mqid and no timer
         printf("Usage: %s [timer duration (positive)]\n", argv[0]);
 
@@ -151,7 +151,7 @@ int main(int argc, char *argv[], char *envp[]) {
     strcpy(g.fname, argv[0]);
 
 
-    if (g.parent == 1) {
+    if (g.isParent == 1) {
         setupMQ();
 
     } else {
@@ -173,7 +173,7 @@ int main(int argc, char *argv[], char *envp[]) {
             if (--g.mytimer == 0)
                 kdone = 1;
         }
-        if ((g.parent == 0)) {
+        if ((g.isParent == 0)) {
             if (g.thread_active == 0) {
                 kdone = 1;  // quit msg sent by parents
                 // printf("threads_active already 0\n");
@@ -189,7 +189,7 @@ int main(int argc, char *argv[], char *envp[]) {
                 pthread_kill(g.tid, SIGUSR1);
             }
         }
-        if (g.parent == 1) {
+        if (g.isParent == 1) {
             parentCheckMSG();
         }
         usleep(4000);
@@ -200,7 +200,7 @@ int main(int argc, char *argv[], char *envp[]) {
 
     x11_cleanup_xwindows();
 
-    if (g.parent == 1) {
+    if (g.isParent == 1) {
         teardownMQ();
     } else {
         void* status;
@@ -287,7 +287,7 @@ void init_globals()
     g.num_children = 0;
 
     // set some initial colors for windows
-    if (g.parent == 1) {
+    if (g.isParent == 1) {
         g.background_color = 0x00FFC72C;
         g.text_color = 0x00000000;
     } else {
@@ -317,7 +317,7 @@ void init_globals()
 
     // init boxy if child
 
-    if (g.parent == 0) {
+    if (g.isParent == 0) {
         boxy.dim.x = boxy.dim.y = 80;
         boxy.pos.x = rand() % (g.xres - boxy.dim.x);
         boxy.pos.y = rand() % (g.yres - boxy.dim.y);
@@ -346,7 +346,7 @@ int check_mouse(XEvent *e) {
     if (e->type == ButtonPress) {
         if (e->xbutton.button==1) { 
             // check for clicking boxes
-            if (g.parent == 1) {
+            if (g.isParent == 1) {
                 m = checkBoxClick(mx, my);
                 if ((m.box_num == (NUM_BOXES -1))
                     && (g.num_children > 0) ){
@@ -426,7 +426,7 @@ int check_mouse(XEvent *e) {
             g.mx = mx;
             g.my = my;
             sum += 1;
-            if (g.parent == 1) {
+            if (g.isParent == 1) {
                 int n = sum%3;
                 switch (n) {
                     case 0:
@@ -479,7 +479,7 @@ int check_keys(XEvent *e) {
             case XK_Escape:
                 // only let parent use escape button
                 // children must be sent the signal from the parent
-                if (g.parent == 1) {
+                if (g.isParent == 1) {
 
                     mymsg.type = (long)PTOC;
                     mymsg.m.t = KILL_SIG;
@@ -488,7 +488,7 @@ int check_keys(XEvent *e) {
                     }
 
                     return 1;
-                } else if (g.parent == 0) {
+                } else if (g.isParent == 0) {
 
                     mymsg.type = (long)CTOP;
                     mymsg.m.t = REMOVE_CHILD;
@@ -502,7 +502,7 @@ int check_keys(XEvent *e) {
                     return 1;
                 }
             case XK_c:
-                if (g.parent == 1 && g.num_children < MAX_CHILDREN) {
+                if (g.isParent == 1 && g.num_children < MAX_CHILDREN) {
                     int cpid = fork();
                     if (cpid == 0) {
                         start_child_win();
@@ -512,7 +512,7 @@ int check_keys(XEvent *e) {
                         // printf("g.num_children: %d\n",g.num_children);
                         // fflush(stdout);
                     }
-                } else if (g.parent == 0) { // child have parent make a new child
+                } else if (g.isParent == 0) { // child have parent make a new child
                     mymsg.type = (long)CTOP;
                     mymsg.m.t = MAKE_CHILD;
                     msgsnd(g.mqid, &mymsg, sizeof(mymsg), 0);
@@ -547,7 +547,7 @@ void render(void) {
     char buf8[] = "#";
     struct msqid_ds msgbuf;
 
-    if ((g.parent == 1) && (g.num_children == 0)) {
+    if ((g.isParent == 1) && (g.num_children == 0)) {
         // parent before children spawn
         strcpy(buf, "Parent Window");
         strcpy(buf2, "Press 'c' to spawn child windows");
@@ -562,7 +562,7 @@ void render(void) {
             memset(buf5, 0, sizeof(buf5));
         }
 
-    } else if (g.parent == 1 && g.num_children > 0) {
+    } else if (g.isParent == 1 && g.num_children > 0) {
         // parent after children spawn with controls
         strcpy(buf, "Parent Window");
         strcpy(buf2, "Left-click mouse on colors");
@@ -589,7 +589,7 @@ void render(void) {
     // draw boxes
     int minx = 10, miny = 10;
 
-    if (g.parent == 1 && g.num_children > 0) {
+    if (g.isParent == 1 && g.num_children > 0) {
         for (int i = 0; i < NUM_BOXES; i++) {
             XSetForeground(g.dpy, g.gc, boxes[i].color);
             XFillRectangle(g.dpy, g.win, g.gc, 
@@ -645,7 +645,7 @@ void render(void) {
     #endif
 
     // draw bouncy box if child window
-    if (g.parent == 0) {
+    if (g.isParent == 0) {
         // box
         XSetForeground(g.dpy, g.gc, boxy.color);
         XFillRectangle(g.dpy, g.win, g.gc, boxy.pos.x, boxy.pos.y, boxy.dim.x, boxy.dim.y);
@@ -661,7 +661,7 @@ void physics(void)
 {
 
     // bouncy box animation on the child window
-    if (g.parent == 0) {
+    if (g.isParent == 0) {
         if (!boxy.winner)
             boxy.winner = check_winner();
 

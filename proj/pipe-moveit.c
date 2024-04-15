@@ -6,17 +6,10 @@ date: 3/7/24
 professor: Gordon
 class: Operating Systems cmps3600
 
-
 TODO:
 
-need to convert between box coords and window coords
--- return the delta as 
-
-
-
-need to be able to handle order for painters algorithm
-    --> last touched is drawn last?
-
+Convert to pipes
+Refactor a bit
 
 */
 
