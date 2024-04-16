@@ -90,7 +90,7 @@ struct Global {
     int mx, my; // mouse positions
     int background_color;
     int text_color;
-    int isClicking; // whether or not the user is currently clicking mouse on window
+    int isClickingOnBox; // whether or not the user is currently clicking mouse on window
     Vec2 myPos;
 
     int mqid;
@@ -159,15 +159,15 @@ int main(int argc, char *argv[], char *envp[]) {
         printf("my index: %d\n", g.index);
         printf("my mqid: %d\n", g.mqid);
         g.isParent = 0;
-        char logname[20];
-        sprintf(logname, "log%s", argv[1]);
-        fd = open(logname, O_CREAT | O_WRONLY | O_TRUNC , 0644);
-        if (fd < 0) {
-            perror("open");
-            exit(EXIT_FAILURE);
-        }  
+        // char logname[20];
+        // sprintf(logname, "log%s", argv[1]);
+        // fd = open(logname, O_CREAT | O_WRONLY | O_TRUNC , 0644);
+        // if (fd < 0) {
+        //     perror("open");
+        //     exit(EXIT_FAILURE);
+        // }  
 
-        write(fd, logname, strlen(logname));
+        // write(fd, logname, strlen(logname));
 
 
     } else if (argc == 1) {
@@ -381,7 +381,7 @@ void init_globals()
     }
 
 
-    // init boxy if child
+    // init boxy if childcf
 
     if (g.isParent == 0) {
         boxy.dim.x = boxy.dim.y = 80;
@@ -395,7 +395,7 @@ void init_globals()
     }
 
     
-    g.isClicking = 0;
+    g.isClickingOnBox = 0;
 
 }
 
@@ -424,7 +424,7 @@ int check_mouse(XEvent *e) {
                     fflush(stdout);
                     #endif
                     
-                    g.isClicking = 1;
+                    g.isClickingOnBox = 1;
                     printf("mx: %d my: %d\n", g.mx, g.my);
                 } 
                 retVal = 0;
@@ -442,7 +442,7 @@ int check_mouse(XEvent *e) {
             g.my = my;
             if (g.isParent == 1) {
                 // check if mouse is currently clicked
-                if (g.isClicking) {
+                if (g.isClickingOnBox) {
                     // move box in window
                     Vec2 delta = {(savex - g.mx), (savey - g.my)};
                     pthread_mutex_lock(&g.mut);
@@ -471,7 +471,7 @@ int check_mouse(XEvent *e) {
     // bug is in here
     if (e->type == ButtonRelease) {
         if ((e->xbutton.button == 1) && (bcd.t == CLICK)) {
-            g.isClicking = 0;
+            g.isClickingOnBox = 0;
             int newX = 0, newY = 0;
             printf("m.box_index: %d\n", bcd.box_index);
             // newX = (boxes[bcd.box_index]->pos.x)*((g.screenResolution.x-g.xres)/(g.xres-boxes[bcd.box_index]->dim.x));
@@ -770,8 +770,10 @@ void setupSHM(void)
     fflush(stdout);
     #endif
 
-    int XPAD = 10, HEIGHT = 80, XSTART = 12, YPAD = 20;
-    int WIDTH = (int)((g.xres - (XSTART) - (NUM_BOXES*XPAD))/NUM_BOXES);
+    int /*XPAD = 10, */HEIGHT = 80, XSTART = 12, YPAD = 20;
+    // int WIDTH = (int)((g.xres - (XSTART) - (NUM_BOXES*XPAD))/NUM_BOXES);
+    int WIDTH = 80;
+    int XPAD = (int)((g.xres - (XSTART) - (NUM_BOXES*WIDTH))/NUM_BOXES);
     int YSTART = (g.yres - HEIGHT - YPAD);
     printf("width: %d\n",WIDTH);
 
@@ -937,4 +939,4 @@ void floorCeil(struct Box *b) {
     else if (b->pos.y > (g.yres-b->dim.y)) {
         b->pos.y = g.yres-b->dim.y; 
     }
-}
+}   

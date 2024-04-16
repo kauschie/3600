@@ -28,6 +28,7 @@ Refactor a bit
 #include <sys/shm.h>
 #include <fcntl.h>
 #include <sys/ipc.h>
+#include <sys/stat.h>
 
 #define DEBUG
 // #define BOX_DEBUG
@@ -54,12 +55,8 @@ typedef struct {
     int text_color;
     int pid;
     int box_index;
+    Vec2 pos;
 } BoxClickData;
-
-struct WinMsg{
-    long type;
-    BoxClickData m;
-} mymsg;
 
 struct Box {
     Vec2 pos;
@@ -69,7 +66,7 @@ struct Box {
     int text_color;
     int winner;
     int cpid;
-} *boxes[NUM_BOXES], *myBox, boxy;
+} boxes[NUM_BOXES], boxy;
 
 struct Global {
     Display *dpy;
@@ -83,21 +80,19 @@ struct Global {
     int mx, my; // mouse positions
     int background_color;
     int text_color;
-    int isClicking; // whether or not the user is currently clicking mouse on window
+    int isClickingOnBox; // whether or not the user is currently clicking mouse on window
     Vec2 myPos;
 
-    int mqid;
     // int my_shmid;
     int isParent; // parent controls all child windows
     int num_children;
     int index;
+    int c2p_fd_FIFO[NUM_BOXES];
+    int p2c_fd_FIFO[NUM_BOXES];
     int cpid_buf[NUM_BOXES]; // has all the cpids of children (max 20)
                                 // not really used now, probably will send child
                                 // specific signals with them
-    int shmid;   // holds all the msgids
-    struct Box* shared;
     int thread_active;
-
     char fname[128];    // file path from main
     char ** envp;       // environment params 
    
@@ -106,12 +101,9 @@ struct Global {
     sigset_t mask;
     pthread_t tid;
 	pthread_mutex_t mut;
+    int wait;
 
-    int p2c_pipes[4][2];
-    int c2p_pipes[4][2];
 } g;
-
-int fd;
 
 void x11_cleanup_xwindows(void);
 void x11_init_xwindows(void);
@@ -123,14 +115,10 @@ void physics(void);
 void x11_setFont(unsigned int idx);
 void *getWindowCoords(void* n);
 void init_globals();
-void setupMQ(void);
-void teardownMQ(void);
-void setupSHM(void);
-void attachSHM(void);
-void detachSHM(struct Box* b);
-void teardownSHM(void);
+void makeFifos();
+void initPipe();
+void closePipe();
 void start_child_win(int idx);
-void checkMSG(void);
 void sigusr1_handler(int sig);
 int check_winner(void);
 void randomize_colors();
@@ -144,24 +132,10 @@ int main(int argc, char *argv[], char *envp[]) {
     strcpy(g.fname, argv[0]);
 
     // PARSE COMMAND LINE ARGS
-    if (argc == 4) {
+    if (argc == 2) {
         // child window - will make thread to look for window coords
-        g.mqid = atoi(argv[1]);
-        g.shmid = atoi(argv[2]);
-        g.index = atoi(argv[3]);
-        printf("my index: %d\n", g.index);
-        printf("my mqid: %d\n", g.mqid);
+        g.index = atoi(argv[1]);
         g.isParent = 0;
-        char logname[20];
-        sprintf(logname, "log%s", argv[1]);
-        fd = open(logname, O_CREAT | O_WRONLY | O_TRUNC , 0644);
-        if (fd < 0) {
-            perror("open");
-            exit(EXIT_FAILURE);
-        }  
-
-        write(fd, logname, strlen(logname));
-
 
     } else if (argc == 1) {
         // parent window - will setupMQ
@@ -169,35 +143,25 @@ int main(int argc, char *argv[], char *envp[]) {
         g.index = -1;
     
     } else {
-        printf("Usage: %s [[mqid] [shmid] [index]]\n", argv[0]);
-        printf("if mqid or shmid are provided then they BOTH MUST be provided\n");
+        printf("Usage: %s [pipe-index]\n", argv[0]);
     }
 
     XEvent e;
     int kdone = 0, mdone = 0;
     x11_init_xwindows();
-
     init_globals();
     // pthread_t tid;
     
-
+    // initPipe();
 
     if (g.isParent == 1) {
-        setupSHM(); // must be setup before they can be initialized in init_globals
-        setupMQ();
+        makeFifos();
+        // getchar();
         createChildWindows();
-        pthread_mutex_init(&g.mut, NULL);
-    } else {
-        // pthread_create(&g.tid, NULL, (void*)checkMSG, NULL);
-        
-        attachSHM();
-        g.background_color = myBox->color;
-        g.text_color = myBox->text_color;
-        printf("done attaching\n");
-        g.thread_active = 1;
-        pthread_create(&g.tid, NULL, getWindowCoords, (void*)NULL);
-
     }
+
+    g.thread_active = 1;
+    pthread_create(&g.tid, NULL, getWindowCoords, (void*)NULL);
 
     while (!mdone && !kdone) {
         /* Check the event queue */
@@ -209,23 +173,37 @@ int main(int argc, char *argv[], char *envp[]) {
         }
         render();
         physics();
-        checkMSG();
         
-        if (g.isParent == false) {
-            // if thread has been deactivated by esc key
-            if (g.thread_active == 0) {
-                // pthread_kill(g.tid, SIGUSR1);
-                break;
-            }
-        }
+
+        // if thread has been deactivated by esc key
+        if (g.thread_active == 0)
+            // pthread_kill(g.tid, SIGUSR1);
+            break;
+
 
         usleep(4000);
     }
 
-    // printf("exited main while loop\n");
-    // fflush(stdout);
+    #ifdef DEBUG
+    printf("%d setting thread_active to 0", g.index);
+    fflush(stdout);
+    #endif
+    
+    g.thread_active = 0;
 
-   
+    void* status;
+    pthread_join(g.tid, &status);
+    #ifdef DEBUG
+    printf("%d finished joining threads\n", g.index);
+    fflush(stdout);
+    #endif
+
+
+    closePipe();
+    #ifdef DEBUG
+    printf("%d finished closing pipe", g.index);
+    fflush(stdout);
+    #endif
 
     if (g.isParent == 1) {
         // parent
@@ -234,6 +212,11 @@ int main(int argc, char *argv[], char *envp[]) {
         char buf[100];
         pid_t childProcID = 0;
 
+        #ifdef DEBUG
+        printf("parent waiting for children\n");
+        fflush(stdout);
+        #endif
+
         for(int i = 0; i < NUM_BOXES; i++) {
             childProcID = wait(&wStatus);
             sprintf(buf, "Child (%d) exited with code: %X\n", childProcID, WEXITSTATUS(wStatus)); 
@@ -241,30 +224,137 @@ int main(int argc, char *argv[], char *envp[]) {
             g.num_children--;
         }
         printf("num_children left: %d\n", g.num_children);
-        teardownMQ();
-        teardownSHM();
-        exit(0);
+
+    } 
+
+    x11_cleanup_xwindows();
+    exit(0);
+
+}
+
+void makeFifos() 
+{
+    char p2c_fifo_buf[100];
+    char c2p_fifo_buf[100];
+
+    if (g.isParent) {
+        // Parent
+        // make and attach to all
+        printf("in makeFifos from parent\n");
+        for (int i = 0; i < NUM_BOXES; i++) {
+            // make  PtoC FIFOs
+            int ret;
+            printf("index: %d\n", i);
+            sprintf(p2c_fifo_buf, "p2c_%i", i);
+            sprintf(c2p_fifo_buf, "c2p_%i", i);
+            
+            ret = mkfifo(p2c_fifo_buf, 0666);
+            if (ret == -1) {
+                // error making fifo
+                // error quit
+                perror("fifo-p2c");
+                exit(1);
+            }
+            ret = mkfifo(c2p_fifo_buf, 0666);
+            if ( ret == -1) {
+                // error making fifo
+                // error quit
+                perror("fifo-c2p");
+                exit(1);
+            }
+            printf("finished %d\n", i);
+        }   
+
+    } 
+}
+
+void initPipe()
+{
+    char p2c_fifo_buf[100];
+    char c2p_fifo_buf[100];
+
+    if (g.isParent) {
+        // Parent
+        // make and attach to all
+        printf("in initPipe from parent\n");
+        for (int i = 0; i < NUM_BOXES; i++) {
+            // make  PtoC FIFOs
+            printf("int initPipe, i: %d\n", i);
+            sprintf(p2c_fifo_buf, "p2c_%i", i);
+            sprintf(c2p_fifo_buf, "c2p_%i", i);
+
+            printf("opening the fifos\n");
+            g.c2p_fd_FIFO[i] = open(c2p_fifo_buf, O_RDONLY | O_NONBLOCK); // reads c2p
+            g.p2c_fd_FIFO[i] = open(p2c_fifo_buf, O_WRONLY); // writes p2c
+        
+
+            if (g.p2c_fd_FIFO[i] < 0) {
+                perror("open p2c parent");
+                exit(EXIT_FAILURE);
+            }
+            if (g.c2p_fd_FIFO[i] < 0) {
+                perror("open c2p parent");
+                exit(EXIT_FAILURE);
+            }
+
+            printf("finished %d\n", i);
+            // getchar();
+        }   
+
     } else {
         // child
+        printf("in initPipe from child\n");
 
-        g.thread_active = 0;
-        printf("setting thread_active to 0");
-        // printf("trying to join threads\n");
-        // fflush(stdout);
-        // pthread_kill(g.tid, SIGUSR1);
-        void* status;
-        pthread_join(g.tid, &status);
-        #ifdef DEBUG
-        printf("finished joining threads\n");
-        fflush(stdout);
-        #endif
+        // just attach to the one the parent made
+        sprintf(p2c_fifo_buf ,"p2c_%i", g.index);
+        sprintf(c2p_fifo_buf, "c2p_%i", g.index);
 
-        detachSHM(myBox);
-        exit(0);
+        g.p2c_fd_FIFO[g.index] = open(p2c_fifo_buf, O_RDONLY | O_NONBLOCK);  // reads p2c
+        g.c2p_fd_FIFO[g.index] = open(c2p_fifo_buf, O_WRONLY);  // write c2p
+        
+
+        if (g.p2c_fd_FIFO[g.index] < 0) {
+            char b[32];
+            sprintf(b, "open p2c child %i", g.index);
+            perror(b);
+            exit(EXIT_FAILURE);
+        }
+        if (g.c2p_fd_FIFO[g.index] < 0) {
+            char b[32];
+            sprintf(b, "open p2c child %i", g.index);
+            perror(b);
+            exit(EXIT_FAILURE);
+        }
+
     }
+}
 
-     x11_cleanup_xwindows();
-    
+void closePipe()
+{
+    char p2c_fifo_buf[100];
+    char c2p_fifo_buf[100];
+
+    if (g.isParent) {
+        // det
+        for (int i = 0; i < NUM_BOXES; i++) {
+            sprintf(p2c_fifo_buf, "p2c_%i", i);
+            sprintf(c2p_fifo_buf, "c2p_%i", i);
+
+            close(g.c2p_fd_FIFO[i]);
+            close(g.p2c_fd_FIFO[i]);
+            unlink(p2c_fifo_buf);
+            unlink(c2p_fifo_buf);
+        }
+
+    } else {
+        sprintf(p2c_fifo_buf, "p2c_%i", g.index);
+        sprintf(c2p_fifo_buf, "c2p_%i", g.index);
+
+        close(g.c2p_fd_FIFO[g.index]);
+        close(g.p2c_fd_FIFO[g.index]);
+        unlink(p2c_fifo_buf);
+        unlink(c2p_fifo_buf);
+    }
 }
 
 void createChildWindows(void)
@@ -272,16 +362,16 @@ void createChildWindows(void)
     pid_t childProcID;
     memset(g.cpid_buf, 0, NUM_BOXES*sizeof(int));
 
- 
     for (int i = 0; i < NUM_BOXES; i++) {
+        g.wait = 1;
         childProcID = fork();
         if (childProcID == 0) {
             // child
-            printf("from child, g.shmid: %d\n", g.shmid);
             start_child_win(i);
         } else {
             g.cpid_buf[g.num_children++] = childProcID;
-            boxes[i]->cpid = childProcID;
+            boxes[i].cpid = childProcID;
+
         }
 
     }
@@ -303,8 +393,8 @@ void x11_init_xwindows(void)
     g.scr = DefaultScreen(g.dpy);
     g.screenResolution.x = DisplayWidth(g.dpy, g.scr);
     g.screenResolution.y = DisplayHeight(g.dpy, g.scr);
-    g.xres = 400;
-    g.yres = 400;
+    g.xres = 480;
+    g.yres = 270;
     g.win = XCreateSimpleWindow(g.dpy, RootWindow(g.dpy, g.scr), 1, 1,
             g.xres, g.yres, 0, 0x00FFFFFF, 0x00000000);
 
@@ -320,15 +410,13 @@ void x11_init_xwindows(void)
 void randomize_colors() {
     int MAX_COLOR = 0x00FFFFFF;
     for (int i = 0; i < NUM_BOXES; i++) {
-        boxes[i]->color = mymsg.m.box_color = rand()&MAX_COLOR;
-        boxes[i]->text_color = mymsg.m.text_color = rand()&MAX_COLOR;
-        mymsg.type = (long)(i+1);
-        mymsg.m.t = COLOR_CHANGE;
+        g.background_color = rand()&MAX_COLOR;
+        g.text_color = rand()&MAX_COLOR;
+     
         
-        printf("parent sending with type: %d\n", (int)mymsg.m.t);
-        msgsnd(g.mqid, &mymsg, sizeof(mymsg), 0);
-    }
+        // send on pipe to children
 
+    }
 }
 
 // bitwise ands against mask to return a valid color in range
@@ -340,8 +428,6 @@ int rand_color() {
 void init_globals()
 {
     srand(time(NULL));
-
-
 
     g.num_children = 0;
 
@@ -372,7 +458,24 @@ void init_globals()
         perror("sigaction SIGUSR1");
         exit(1);
     }
+    int HEIGHT = 80, XSTART = 12, YPAD = 20;
+    int WIDTH = 160;
+    int XPAD = (int)((g.xres - (XSTART) - (NUM_BOXES*WIDTH))/NUM_BOXES);
+    int YSTART = (g.yres - HEIGHT - YPAD);
+    printf("width: %d\n",WIDTH);
 
+
+    for (int i = 0; i < NUM_BOXES; i++) {
+
+        boxes[i].dim.x = WIDTH;
+        boxes[i].dim.y = HEIGHT;
+        boxes[i].pos.x = XSTART + (i * WIDTH) + (i* XPAD);
+                    printf("xpos: %d\n",boxes[i].pos.x);
+
+        boxes[i].pos.y = YSTART;
+        boxes[i].color = rand_color();
+        boxes[i].text_color = rand_color();
+    }
 
     // init boxy if child
 
@@ -388,7 +491,7 @@ void init_globals()
     }
 
     
-    g.isClicking = 0;
+    g.isClickingOnBox = 0;
 
 }
 
@@ -414,11 +517,11 @@ int check_mouse(XEvent *e) {
 
                     #ifdef DEBUG
                     printf("You clicked on box w/ pid: %d... setting isClick\n", bcd.pid);
+                    printf("mx: %d my: %d\n", g.mx, g.my);
                     fflush(stdout);
                     #endif
                     
-                    g.isClicking = 1;
-                    printf("mx: %d my: %d\n", g.mx, g.my);
+                    g.isClickingOnBox = 1;
                 } 
                 retVal = 0;
             } else {
@@ -435,19 +538,18 @@ int check_mouse(XEvent *e) {
             g.my = my;
             if (g.isParent == 1) {
                 // check if mouse is currently clicked
-                if (g.isClicking) {
+                if (g.isClickingOnBox) {
                     // move box in window
                     Vec2 delta = {(savex - g.mx), (savey - g.my)};
-                    pthread_mutex_lock(&g.mut);
-                    boxes[bcd.box_index]->pos.x -= delta.x;
-                    boxes[bcd.box_index]->pos.y -= delta.y;
-                    floorCeil(boxes[bcd.box_index]);
-                    pthread_mutex_unlock(&g.mut);
 
-                    mymsg.type = (long)(bcd.box_index+1);
-                    mymsg.m.t = CLICK;
-                    printf("parent sending with type: %d\n", (int)mymsg.m.t);
-                    msgsnd(g.mqid, &mymsg, sizeof(mymsg), 0);
+                    // pthread_mutex_lock(&g.mut);
+                    boxes[bcd.box_index].pos.x -= delta.x;
+                    boxes[bcd.box_index].pos.y -= delta.y;
+                    floorCeil(&(boxes[bcd.box_index]));
+                    printf("parent sending with type: <insert type here>");
+
+
+
                 }
 
             } else {
@@ -464,24 +566,12 @@ int check_mouse(XEvent *e) {
     // bug is in here
     if (e->type == ButtonRelease) {
         if ((e->xbutton.button == 1) && (bcd.t == CLICK)) {
-            g.isClicking = 0;
+            g.isClickingOnBox = 0;
             int newX = 0, newY = 0;
             printf("m.box_index: %d\n", bcd.box_index);
             // newX = (boxes[bcd.box_index]->pos.x)*((g.screenResolution.x-g.xres)/(g.xres-boxes[bcd.box_index]->dim.x));
             // newY = (boxes[bcd.box_index]->pos.y)*((g.screenResolution.y-g.yres)/(g.yres-boxes[bcd.box_index]->dim.y));
-            // // XMoveWindow(g.dpy, g.win, newX, newY);
-            mymsg.type = (long)(bcd.box_index+1);
-            mymsg.m.t = CLICK;
-            printf("parent sending with type: %d\n", (int)mymsg.m.t);
-            msgsnd(g.mqid, &mymsg, sizeof(mymsg), 0);
 
-            #ifdef DEBUG
-            printf("unsetting isClick\n");
-            printf("sending new windowCoords: (%d, %d)\n", newX, newY);
-            fflush(stdout);
-            #endif
-
-            mymsg.m.t = NONE;
         }
         retVal = 0;
     }
@@ -504,29 +594,10 @@ int check_keys(XEvent *e) {
             case XK_Escape:
                 // only let parent use escape button
                 // children must be sent the signal from the parent
-                if (g.isParent == 1) {
+                
 
-                    mymsg.m.t = KILL_SIG;
-                    for (int i = 0; i < g.num_children; i++) {
-                        printf("sending kill msg with m.type: %d\n", i+1);
-                        mymsg.type = (long)i+1;
-                        msgsnd(g.mqid, &mymsg, sizeof(mymsg), 0);
-                    }
-
-                    return 1;
-                } else if (g.isParent == 0) {
-
-                    mymsg.type = (long)CTOP;
-                    mymsg.m.t = REMOVE_CHILD;
-                    msgsnd(g.mqid, &mymsg, sizeof(mymsg), 0);
-                    g.thread_active = 0;
-
-                    // printf("sending pthread_kill\n");
-                    // fflush(stdout);
-                    // pthread_kill(g.tid, SIGUSR1);
-
-                    return 1;
-                }
+                g.thread_active = 0;
+                return 1;
             case XK_c:
                 
                 break;
@@ -536,19 +607,11 @@ int check_keys(XEvent *e) {
 }
 
 void start_child_win(int idx) {
-    // char timer[12];
-    char mqid[12];
-    char sBuf[12];
     char iBuf[12];
 
-    // make str of timer and cpid
-    // sprintf(timer, "%d", g.mytimer); 
-    sprintf(mqid, "%d", g.mqid);
-    sprintf(sBuf, "%d", g.shmid);
     sprintf(iBuf, "%d", idx);
 
-    char *argv[] = {g.fname, mqid, sBuf, iBuf, NULL};
-    //char *envp[2] = {"DISPLAY=:0.0", NULL};
+    char *argv[] = {g.fname, iBuf, NULL};
     execve(g.fname, argv, g.envp);
 }
 
@@ -580,14 +643,14 @@ void render(void) {
         
 
         for (int i = 0; i < g.num_children; i++) {
-            // printf("xpos: %d\n", boxes[i]->pos.x);
-            sprintf(buf4, "(%d,%d)", boxes[i]->pos.x, boxes[i]->pos.y);
-            XSetForeground(g.dpy, g.gc, boxes[i]->color);
-            XFillRectangle(g.dpy, g.win, g.gc, boxes[i]->pos.x, boxes[i]->pos.y, boxes[i]->dim.x, boxes[i]->dim.y);
+            // printf("xpos: %d\n", boxes[i].pos.x);
+            sprintf(buf4, "(%d,%d)", boxes[i].pos.x, boxes[i].pos.y);
+            XSetForeground(g.dpy, g.gc, boxes[i].color);
+            XFillRectangle(g.dpy, g.win, g.gc, boxes[i].pos.x, boxes[i].pos.y, boxes[i].dim.x, boxes[i].dim.y);
             XSetForeground(g.dpy, g.gc, 0x00ffffff);
              x11_setFont(3);
             XDrawString(g.dpy, g.win, g.gc, 
-                            (boxes[i]->pos.x)+5, (boxes[i]->pos.y)+40, buf4, strlen(buf4));
+                            (boxes[i].pos.x)+5, (boxes[i].pos.y)+40, buf4, strlen(buf4));
         }
 
 
@@ -681,10 +744,55 @@ void *getWindowCoords(void* n) {
     Window root = DefaultRootWindow(g.dpy);
     Window child;
 
+    BoxClickData bcd;
+
+    initPipe();
+
     while(g.thread_active) {
         XGetWindowAttributes(g.dpy, root, &g.xwa);
         XTranslateCoordinates(g.dpy, g.win, root, g.xwa.x, g.xwa.y, &g.myPos.x, &g.myPos.y, &child);
-        usleep(4000);
+       
+        if (g.isParent) {
+            for (int i = 0; i < NUM_BOXES; i++) {
+                while (read(g.c2p_fd_FIFO[i], &bcd, sizeof(bcd)) > 0) {
+                    // switch on message
+                        // make sure box indices match for verification?
+
+
+
+                        // if color message
+                            // change color (one box)
+
+
+
+                        // if move message, 
+                            // convert to box coords
+                            // move box associated with pipe
+
+
+
+                        // if quit message
+                            // delete the box from the screen
+
+
+                }
+            }
+        } else {
+            while (read(g.p2c_fd_FIFO[g.index], &bcd, sizeof(bcd)) > 0) {
+                    // switch on message
+                        // if color message
+                            // change color (rand colors)
+
+                        // if move message
+                            // convert to screen coords
+                            // change position
+
+                        // if kill message
+                            // quit thread and terminate process
+                        
+            }
+        }
+         usleep(4000);
     }
 
     return (void*)0;
@@ -700,209 +808,20 @@ bool checkBoxClick(int mx, int my, BoxClickData* bcd) {
 
     // iterate over all colored boxes on parent
     for (int i = 0; i < NUM_BOXES; i++) {
-        if (((mx > boxes[i]->pos.x) && (mx < (boxes[i]->pos.x + boxes[i]->dim.x)))
-                && ((my > boxes[i]->pos.y) && (my < (boxes[i]->pos.y + boxes[i]->dim.y)))) {
+        if (((mx > boxes[i].pos.x) && (mx < (boxes[i].pos.x + boxes[i].dim.x)))
+                && ((my > boxes[i].pos.y) && (my < (boxes[i].pos.y + boxes[i].dim.y)))) {
             bcd->t = CLICK;
             printf("setting t to: %d\n", bcd->t);
             bcd->box_color = rand_color();
             bcd->text_color = rand_color();
 
-            bcd->pid = boxes[i]->cpid;
+            bcd->pid = boxes[i].cpid;
             bcd->box_index = i;
             return true;
         }
     }
     return false;
 }
-
-void setupMQ(void) {
-    #ifdef DEBUG
-    printf("Setting up MQ\n");
-    fflush(stdout);
-    #endif
-
-    // check for failure when generating ipc key
-    g.mqid = msgget(IPC_PRIVATE, IPC_CREAT | 0666);
-    if (g.mqid < 0) {
-        perror("msgget");
-        exit(EXIT_FAILURE);
-    }
-}
-
-void teardownMQ(void) {
-    #ifdef DEBUG
-    printf("Tearing Down MQ\n");
-    fflush(stdout);
-    #endif
-
-    msgctl(g.mqid, IPC_RMID, 0);
-} 
-
-void setupSHM(void)
-{
-
-    g.shmid = shmget(IPC_PRIVATE, (sizeof(struct Box) * NUM_BOXES), IPC_CREAT | 0666); 
-    
-    if (g.shmid < 0) {
-        perror("shmget");
-        exit(EXIT_FAILURE);
-    }
-
-    #ifdef DEBUG
-    printf("%d\n", g.shmid);
-    #endif
-
-    struct Box *shared = (struct Box*)shmat(g.shmid, (void*)0, 0);
-    if (shared == (void *) -1) {
-        perror("Error attaching shared memory segment");
-        exit(EXIT_FAILURE);
-    }
-
-    #ifdef DEBUG
-    printf("attached to mem\n");
-    fflush(stdout);
-    #endif
-
-    int XPAD = 10, HEIGHT = 80, XSTART = 12, YPAD = 20;
-    int WIDTH = (int)((g.xres - (XSTART) - (NUM_BOXES*XPAD))/NUM_BOXES);
-    int YSTART = (g.yres - HEIGHT - YPAD);
-    printf("width: %d\n",WIDTH);
-
-
-    // init box
-    for (int i = 0; i < NUM_BOXES; i++) {
-        pthread_mutex_lock (&g.mut);
-        boxes[i] = &shared[i];
-        boxes[i]->dim.x = WIDTH;
-        boxes[i]->dim.y = HEIGHT;
-        boxes[i]->pos.x = XSTART + (i * WIDTH) + (i* XPAD);
-                    printf("xpos: %d\n",boxes[i]->pos.x);
-
-        boxes[i]->pos.y = YSTART;
-        boxes[i]->color = rand_color();
-        boxes[i]->text_color = rand_color();
-        pthread_mutex_unlock (&g.mut);
-        //boxes[i].cpid is initialized when threads are created in main
-
-    }
-    #ifdef DEBUG
-    printf("finished initing boxes\n");
-    fflush(stdout);
-    #endif
-}
-
-// attach to the memory from the child
-void attachSHM(void)
-{
-    g.shared = (struct Box*)shmat(g.shmid, (void*)0, 0);
-    if (g.shared == (void *) -1) {
-        perror("Error attaching shared memory segment");
-        exit(EXIT_FAILURE);
-    }
-
-    for (int i = 0; i < NUM_BOXES; i++) {
-        // pthread_mutex_lock (&g.mut);
-        boxes[i] = &g.shared[i];
-        // pthread_mutex_unlock (&g.mut);
-        //boxes[i].cpid is initialized when threads are created in main
-
-    }
-
-
-    myBox = boxes[g.index];
-}
-
-void detachSHM(struct Box *b)
-{
-    shmdt(b);
-}
-
-void teardownSHM(void)
-{
-    // for (int i = 0; i < NUM_BOXES; i++) {
-    //     detachSHM(boxes);
-    //     shmctl(g.shmid, IPC_RMID, NULL);
-    // }
-    shmdt(g.shared);
-    shmctl(g.shmid, IPC_RMID, NULL);
-
-}
-
-void checkMSG() {
-    /* 
-    TODO:
-        CHANGE CTOP TO THE APPROPRIATE SIGNAL TO A WINDOW
-            THIS WILL BE THE MESSAGE HANDLER FOR ALL PROCS */
-    int newX, newY;
-    if (g.isParent == 0) {
-        if (msgrcv(g.mqid, &mymsg, sizeof(mymsg), 
-                    (long)(g.index+1), IPC_NOWAIT) > 0) {// on success
-
-            #ifdef DEBUG
-            printf("Got a message for box[%d]\n", g.index);
-            fflush(stdout);
-            #endif
-       
-            switch (mymsg.m.t) {
-                case CLICK:
-                    newX = (myBox->pos.x)*
-                                            ((g.screenResolution.x-g.xres)/
-                                            (g.xres-myBox->dim.x));
-                    newY = (myBox->pos.y)*
-                                        ((g.screenResolution.y-g.yres)/
-                                        (g.yres-myBox->dim.y));
-            
-                    printf("made it in the switch\n");
-                    XMoveWindow(g.dpy, g.win, newX, newY);
-
-                    #ifdef DEBUG
-                    printf("Signal received to remove child\n");
-                    printf("g.num_children: %d\n",g.num_children);
-                    fflush(stdout);
-                    
-                    #endif
-                    break;
-                case COLOR_CHANGE:
-                    g.background_color = mymsg.m.box_color;
-                    g.text_color = mymsg.m.text_color;
-
-                    break;
-
-                case KILL_SIG:
-
-                    pthread_kill(g.tid, SIGUSR1);
-                    g.thread_active = 0;
-                    break;
-                default:
-                    break;
-            }
-        }
-    } else {
-        if (msgrcv(g.mqid, &mymsg, sizeof(mymsg), 
-                (long)CTOP, IPC_NOWAIT) > 0) {// on success
-
-            #ifdef DEBUG
-            printf("Got a message for the parent\n");
-            fflush(stdout);
-            #endif
-
-            switch (mymsg.m.t) {
-                case REMOVE_CHILD:
-                    g.cpid_buf[--g.num_children] = 0;
-                    #ifdef DEBUG
-                    printf("Signal received to remove child\n");
-                    printf("g.num_children: %d\n",g.num_children);
-                    fflush(stdout);
-                    
-                    #endif
-                    break;
-                default:
-                        break;
-            }
-        }
-    }
-}
-
 
 // signal handler for worker thread to 
 // quit while blocking for msgrcv
@@ -917,6 +836,10 @@ void sigusr1_handler(int sig) {
     
     exit(0);
 }
+
+// TODO:
+// need to translate between box and screen space coords
+// currently makes incorrect assumptions
 
 void floorCeil(struct Box *b) {
     if (b->pos.x < 0)
