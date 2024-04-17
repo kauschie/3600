@@ -42,7 +42,7 @@ Refactor a bit
 // #endif // !MAX_CHILDREN
 
 typedef enum {false, true} bool;
-enum MsgType { PTOC = 25, CTOP = 50, CLICK=10, KILL_SIG=20, REMOVE_CHILD=30, COLOR_CHANGE=40, NONE=99};
+enum MsgType { PTOC = 25, CTOP = 50, CLICK=10, KILL_SIG=20, REMOVE_CHILD=30, COLOR_CHANGE=40, MOVE=50, NONE=99};
 
 typedef struct {
     int x;
@@ -56,6 +56,7 @@ typedef struct {
     int pid;
     int box_index;
     Vec2 pos;
+    Vec2 dim;
 } BoxClickData;
 
 struct Box {
@@ -66,6 +67,7 @@ struct Box {
     int text_color;
     int winner;
     int cpid;
+    int enabled;
 } boxes[NUM_BOXES], boxy;
 
 struct Global {
@@ -124,6 +126,8 @@ int check_winner(void);
 void randomize_colors();
 void createChildWindows(void);
 void floorCeil(struct Box *b);
+Vec2 box2Screen(const BoxClickData * bcd);
+Vec2 screen2Box(const BoxClickData * bcd);
 bool checkBoxClick(int mx, int my, BoxClickData *bcd);
 
 int main(int argc, char *argv[], char *envp[]) {
@@ -393,8 +397,8 @@ void x11_init_xwindows(void)
     g.scr = DefaultScreen(g.dpy);
     g.screenResolution.x = DisplayWidth(g.dpy, g.scr);
     g.screenResolution.y = DisplayHeight(g.dpy, g.scr);
-    g.xres = 480;
-    g.yres = 270;
+    g.xres = 16*40;
+    g.yres = 9*40;
     g.win = XCreateSimpleWindow(g.dpy, RootWindow(g.dpy, g.scr), 1, 1,
             g.xres, g.yres, 0, 0x00FFFFFF, 0x00000000);
 
@@ -409,20 +413,38 @@ void x11_init_xwindows(void)
 
 void randomize_colors() {
     int MAX_COLOR = 0x00FFFFFF;
-    for (int i = 0; i < NUM_BOXES; i++) {
-        g.background_color = rand()&MAX_COLOR;
-        g.text_color = rand()&MAX_COLOR;
-     
-        
-        // send on pipe to children
+    if (g.isParent) {
+        BoxClickData bcd;
+        bcd.t = COLOR_CHANGE;
 
+        for (int i = 0; i < NUM_BOXES; i++) {
+            bcd.box_color = boxes[i].color = rand()&MAX_COLOR;
+            bcd.text_color = boxes[i].text_color = rand()&MAX_COLOR;
+            bcd.box_index = i;
+            bcd.pid = g.cpid_buf[i];
+        
+            // send on pipe to children
+            write(g.p2c_fd_FIFO[i], &bcd, sizeof(bcd));
+        }
     }
 }
 
 // bitwise ands against mask to return a valid color in range
-int rand_color() {
+void rand_color() {
     int MAX_COLOR = 0x00FFFFFF; // mask of valid bits RGB(255,255,255)
-    return rand()&MAX_COLOR;    
+    g.background_color = rand()&MAX_COLOR;
+    g.text_color = rand()&MAX_COLOR;
+
+    if (!g.isParent) {
+        BoxClickData bcd;
+        bcd.t = COLOR_CHANGE;
+        bcd.box_index = g.index;
+        bcd.text_color = g.text_color;
+        bcd.box_color = g.background_color;
+
+        write(g.c2p_fd_FIFO[g.index], &bcd, sizeof(bcd));
+    } 
+       
 }
 
 void init_globals()
@@ -458,7 +480,7 @@ void init_globals()
         perror("sigaction SIGUSR1");
         exit(1);
     }
-    int HEIGHT = 80, XSTART = 12, YPAD = 20;
+    int HEIGHT = 90, XSTART = 12, YPAD = 20;
     int WIDTH = 160;
     int XPAD = (int)((g.xres - (XSTART) - (NUM_BOXES*WIDTH))/NUM_BOXES);
     int YSTART = (g.yres - HEIGHT - YPAD);
@@ -473,8 +495,9 @@ void init_globals()
                     printf("xpos: %d\n",boxes[i].pos.x);
 
         boxes[i].pos.y = YSTART;
-        boxes[i].color = rand_color();
-        boxes[i].text_color = rand_color();
+        boxes[i].color = rand()%0x00FFFFFF;
+        boxes[i].text_color = rand()%0x00FFFFFF;
+        boxes[i].enabled = 1;
     }
 
     // init boxy if child
@@ -510,10 +533,11 @@ int check_mouse(XEvent *e) {
         return 0;
     if (e->type == ButtonPress) {
         if (e->xbutton.button==1) { 
+            
             // check for clicking boxes
-            if (g.isParent == 1) {
-                checkBoxClick(mx, my, &bcd);
-                if (bcd.t == CLICK) {
+            checkBoxClick(mx, my, &bcd);
+            if (bcd.t == CLICK) {
+                if (g.isParent == 1) {
 
                     #ifdef DEBUG
                     printf("You clicked on box w/ pid: %d... setting isClick\n", bcd.pid);
@@ -521,13 +545,16 @@ int check_mouse(XEvent *e) {
                     fflush(stdout);
                     #endif
                     
-                    g.isClickingOnBox = 1;
-                } 
+                } else {
+                    #ifdef DEBUG
+                    printf("You clicked on child %d. setting isClick\n", g.index);
+                    printf("mx: %d my: %d\n", g.mx, g.my);
+                    fflush(stdout);
+                    #endif
+                }
+                g.isClickingOnBox = 1;
                 retVal = 0;
-            } else {
-
-                retVal = 0;
-            }
+            } 
         }
         if (e->xbutton.button==3) { return 0;}
     }
@@ -536,27 +563,37 @@ int check_mouse(XEvent *e) {
             /*mouse moved*/
             g.mx = mx;
             g.my = my;
-            if (g.isParent == 1) {
+
+
+            if (g.isClickingOnBox) {
                 // check if mouse is currently clicked
-                if (g.isClickingOnBox) {
+                Vec2 delta = {(savex - g.mx), (savey - g.my)};
+                if (g.isParent == 1) {
                     // move box in window
-                    Vec2 delta = {(savex - g.mx), (savey - g.my)};
 
                     // pthread_mutex_lock(&g.mut);
                     boxes[bcd.box_index].pos.x -= delta.x;
                     boxes[bcd.box_index].pos.y -= delta.y;
                     floorCeil(&(boxes[bcd.box_index]));
-                    printf("parent sending with type: <insert type here>");
 
+                    bcd.pos.x = boxes[bcd.box_index].pos.x;
+                    bcd.pos.y = boxes[bcd.box_index].pos.y;
+                    write(g.p2c_fd_FIFO[bcd.box_index], &bcd, sizeof(bcd));
 
+                    // printf("parent sending with type: <insert type here>");
+                } else {
+                    // isChild
+                    // bcd.t = MOVE;
+                    // bcd.box_index = g.index;
+                    // bcd.pos.x = g.myPos.x - delta.x;
+                    // bcd.pos.y = g.myPos.y - delta.y;
+                    // XMoveWindow(g.dpy, g.win, bcd.pos.x, bcd.pos.y);
+                    // write(g.c2p_fd_FIFO[g.index], &bcd, sizeof(bcd));
 
                 }
 
-            } else {
-                    //update box
 
-
-            }
+            } 
             savex = mx;
             savey = my;
         }
@@ -565,13 +602,10 @@ int check_mouse(XEvent *e) {
 
     // bug is in here
     if (e->type == ButtonRelease) {
-        if ((e->xbutton.button == 1) && (bcd.t == CLICK)) {
-            g.isClickingOnBox = 0;
-            int newX = 0, newY = 0;
-            printf("m.box_index: %d\n", bcd.box_index);
-            // newX = (boxes[bcd.box_index]->pos.x)*((g.screenResolution.x-g.xres)/(g.xres-boxes[bcd.box_index]->dim.x));
-            // newY = (boxes[bcd.box_index]->pos.y)*((g.screenResolution.y-g.yres)/(g.yres-boxes[bcd.box_index]->dim.y));
-
+        if ((e->xbutton.button == 1)) {
+            if (g.isClickingOnBox) {
+                g.isClickingOnBox = false;
+            }
         }
         retVal = 0;
     }
@@ -589,15 +623,29 @@ int check_keys(XEvent *e) {
     if (e->type == KeyPress) {
         switch (key) {
             case XK_1:          
-                randomize_colors();
+                if (g.isParent) {
+                    randomize_colors();
+                } else {
+                    rand_color();
+                }
                 break;
-            case XK_Escape:
+            case XK_Escape: {
+
                 // only let parent use escape button
                 // children must be sent the signal from the parent
                 
-
-                g.thread_active = 0;
-                return 1;
+                BoxClickData bcd;
+                if (g.isParent) {
+                    bcd.t = KILL_SIG;
+                    for (int i = 0; i < NUM_BOXES; i++) {
+                        bcd.box_index = i;
+                        write(g.p2c_fd_FIFO[i], &bcd, sizeof(bcd));
+                    }
+                    g.thread_active = 0;
+                    return 1;
+                } 
+            }
+            
             case XK_c:
                 
                 break;
@@ -644,13 +692,15 @@ void render(void) {
 
         for (int i = 0; i < g.num_children; i++) {
             // printf("xpos: %d\n", boxes[i].pos.x);
-            sprintf(buf4, "(%d,%d)", boxes[i].pos.x, boxes[i].pos.y);
-            XSetForeground(g.dpy, g.gc, boxes[i].color);
-            XFillRectangle(g.dpy, g.win, g.gc, boxes[i].pos.x, boxes[i].pos.y, boxes[i].dim.x, boxes[i].dim.y);
-            XSetForeground(g.dpy, g.gc, 0x00ffffff);
-             x11_setFont(3);
-            XDrawString(g.dpy, g.win, g.gc, 
-                            (boxes[i].pos.x)+5, (boxes[i].pos.y)+40, buf4, strlen(buf4));
+            if (boxes[i].enabled) {
+                sprintf(buf4, "(%d,%d)", boxes[i].pos.x, boxes[i].pos.y);
+                XSetForeground(g.dpy, g.gc, boxes[i].color);
+                XFillRectangle(g.dpy, g.win, g.gc, boxes[i].pos.x, boxes[i].pos.y, boxes[i].dim.x, boxes[i].dim.y);
+                XSetForeground(g.dpy, g.gc, 0x00ffffff);
+                x11_setFont(3);
+                XDrawString(g.dpy, g.win, g.gc, 
+                                (boxes[i].pos.x)+5, (boxes[i].pos.y)+40, buf4, strlen(buf4));
+            }
         }
 
 
@@ -745,6 +795,7 @@ void *getWindowCoords(void* n) {
     Window child;
 
     BoxClickData bcd;
+    // static Vec2 savedWinCoords = {-1, -1};
 
     initPipe();
 
@@ -755,42 +806,66 @@ void *getWindowCoords(void* n) {
         if (g.isParent) {
             for (int i = 0; i < NUM_BOXES; i++) {
                 while (read(g.c2p_fd_FIFO[i], &bcd, sizeof(bcd)) > 0) {
-                    // switch on message
-                        // make sure box indices match for verification?
+                    // switch on message type
+                    switch (bcd.t)
+                    {
+                    case COLOR_CHANGE: {
+                        #ifdef DEBUG
+                        printf("parent got a COLOR CHANGE message from %d\n",bcd.box_index);
+                        #endif // DEBUG
+                        boxes[bcd.box_index].color = bcd.box_color;
+                        boxes[bcd.box_index].text_color = bcd.text_color;
 
+                        break;
+                    }
+                    case MOVE: {
+                        #ifdef DEBUG
+                        printf("parent got a MOVE message from %d\n",bcd.box_index);
+                        #endif // DEBUG
+                        bcd.dim = boxes[bcd.box_index].dim; // put dim into param
+                        Vec2 newCoords = screen2Box(&bcd);
+                        boxes[bcd.box_index].pos = newCoords;
+                        break;
+                    }
 
-
-                        // if color message
-                            // change color (one box)
-
-
-
-                        // if move message, 
-                            // convert to box coords
-                            // move box associated with pipe
-
-
-
-                        // if quit message
-                            // delete the box from the screen
-
-
+                    case REMOVE_CHILD: {
+                        
+                        boxes[bcd.box_index].enabled = 0;
+                        break;
+                    }
+                    default:
+                        break;
+                    }
                 }
             }
         } else {
+            // child
+            // bool coordsChanged = false;
             while (read(g.p2c_fd_FIFO[g.index], &bcd, sizeof(bcd)) > 0) {
                     // switch on message
-                        // if color message
-                            // change color (rand colors)
+                switch (bcd.t)
+                {
+                case CLICK:{
+                    Vec2 newCoords = box2Screen(&bcd);
+                    XMoveWindow(g.dpy, g.win, newCoords.x, newCoords.y);
+                    // coordsChanged = true;
+                }
+                    break;
+                case KILL_SIG: {
+                    g.thread_active = 0;
+                    break;
+                }
 
-                        // if move message
-                            // convert to screen coords
-                            // change position
-
-                        // if kill message
-                            // quit thread and terminate process
-                        
+                case COLOR_CHANGE: {
+                    g.background_color = bcd.box_color;
+                    g.text_color = bcd.text_color;
+                }
+                default:
+                    break;
+                }
+               
             }
+
         }
          usleep(4000);
     }
@@ -807,18 +882,26 @@ bool checkBoxClick(int mx, int my, BoxClickData* bcd) {
 
 
     // iterate over all colored boxes on parent
-    for (int i = 0; i < NUM_BOXES; i++) {
-        if (((mx > boxes[i].pos.x) && (mx < (boxes[i].pos.x + boxes[i].dim.x)))
-                && ((my > boxes[i].pos.y) && (my < (boxes[i].pos.y + boxes[i].dim.y)))) {
-            bcd->t = CLICK;
-            printf("setting t to: %d\n", bcd->t);
-            bcd->box_color = rand_color();
-            bcd->text_color = rand_color();
+    if (g.isParent) {
+        for (int i = 0; i < NUM_BOXES; i++) {
+            if (((mx > boxes[i].pos.x) && (mx < (boxes[i].pos.x + boxes[i].dim.x)))
+                    && ((my > boxes[i].pos.y) && (my < (boxes[i].pos.y + boxes[i].dim.y)))) {
+                bcd->t = CLICK;
+                #ifdef DEBUG
+                printf("setting t to: %d\n", bcd->t);
+                #endif // DEBUG
 
-            bcd->pid = boxes[i].cpid;
-            bcd->box_index = i;
-            return true;
+                bcd->pid = boxes[i].cpid;
+                bcd->box_index = i;
+                return true;
+            }
         }
+
+    } else {
+        // isChild
+        bcd->t = CLICK;
+        bcd->box_index = g.index;
+        return true;
     }
     return false;
 }
@@ -853,4 +936,26 @@ void floorCeil(struct Box *b) {
     else if (b->pos.y > (g.yres-b->dim.y)) {
         b->pos.y = g.yres-b->dim.y; 
     }
+}
+
+// comes in as box position, leaves as screen position
+Vec2 box2Screen(const BoxClickData * bcd)
+{
+    int newX = (bcd->pos.x)*(((float)(g.screenResolution.x-g.xres))/(g.xres-bcd->dim.x));
+    int newY = (bcd->pos.y)*(((float)(g.screenResolution.y-g.yres))/(g.yres-bcd->dim.y));
+
+    Vec2 ret = {newX, newY};
+
+    return ret;
+}
+
+// comes in as screen position, leaves as box position
+Vec2 screen2Box(const BoxClickData * bcd)
+{
+    float newX = (bcd->pos.x)*((g.xres-bcd->dim.x)*(1.0)/(g.screenResolution.x-g.xres));
+    float newY = (bcd->pos.y)*((g.yres-bcd->dim.y)*(1.0)/(g.screenResolution.y-g.yres));
+
+    Vec2 ret = {(int)newX, (int)newY};
+
+    return ret;
 }
