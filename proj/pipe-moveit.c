@@ -168,8 +168,8 @@ int main(int argc, char *argv[], char *envp[]) {
     g.thread_active = 1;
     pthread_create(&g.tid, NULL, getWindowCoords, (void*)NULL);
 
-    usleep(8000);   // wait until children are setup
-    if (g.isParent == 1) randomize_colors();
+    // usleep(8000);   // wait until children are setup
+    // if (g.isParent == 1) randomize_colors();
 
     while (!mdone && !kdone) {
         /* Check the event queue */
@@ -720,11 +720,11 @@ void render(void) {
     XSetForeground(g.dpy, g.gc, g.text_color);
     x11_setFont(14);
     if (strlen(buf) > 0)
-        XDrawString(g.dpy, g.win, g.gc, 30, 40, buf, strlen(buf));
+        XDrawString(g.dpy, g.win, g.gc, (g.xres/2)-50, (g.yres/2), buf, strlen(buf));
     if (strlen(buf2) > 0)
-        XDrawString(g.dpy, g.win, g.gc, 60, 90, buf2, strlen(buf2));
+        XDrawString(g.dpy, g.win, g.gc, (g.xres/2)-80, (g.yres/2)+20, buf2, strlen(buf2));
     if (strlen(buf3) > 0)
-        XDrawString(g.dpy, g.win, g.gc, 60, 140, buf3, strlen(buf3));
+        XDrawString(g.dpy, g.win, g.gc, (g.xres/2)-80, (g.yres/2)+40, buf3, strlen(buf3));
 
 
     // draw bouncy box if child window
@@ -809,10 +809,14 @@ void *getWindowCoords(void* n) {
 
     initPipe();
 
+    if (!g.isParent) rand_color();
+
     while(g.thread_active) {
+        // get coords
         XGetWindowAttributes(g.dpy, root, &g.xwa);
         XTranslateCoordinates(g.dpy, g.win, root, g.xwa.x, g.xwa.y, &g.myPos.x, &g.myPos.y, &child);
        
+        // respond to pipe
         if (g.isParent) {
             for (int i = 0; i < NUM_BOXES; i++) {
                 while (read(g.c2p_fd_FIFO[i], &bcd, sizeof(bcd)) > 0) {
