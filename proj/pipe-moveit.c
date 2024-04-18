@@ -30,7 +30,7 @@ Refactor a bit
 #include <sys/ipc.h>
 #include <sys/stat.h>
 
-#define DEBUG
+// #define DEBUG
 // #define BOX_DEBUG
 
 #ifndef NUM_BOXES
@@ -217,21 +217,28 @@ int main(int argc, char *argv[], char *envp[]) {
         // parent
 
         int wStatus;
-        char buf[100];
-        pid_t childProcID = 0;
 
         #ifdef DEBUG
+        char buf[100];
+        pid_t childProcID = 0;
         printf("parent waiting for children\n");
         fflush(stdout);
         #endif
 
         for(int i = 0; i < NUM_BOXES; i++) {
+            #ifdef DEBUG
             childProcID = wait(&wStatus);
             sprintf(buf, "Child (%d) exited with code: %X\n", childProcID, WEXITSTATUS(wStatus)); 
             printf("%s",buf);
+            #else
+            wait(&wStatus);
+            #endif // DEBUG
+
             g.num_children--;
         }
+        #ifdef DEBUG
         printf("num_children left: %d\n", g.num_children);
+        #endif // DEBUG
 
     } 
 
@@ -248,11 +255,11 @@ void makeFifos()
     if (g.isParent) {
         // Parent
         // make and attach to all
-        printf("in makeFifos from parent\n");
+        // printf("in makeFifos from parent\n");
         for (int i = 0; i < NUM_BOXES; i++) {
             // make  PtoC FIFOs
             int ret;
-            printf("index: %d\n", i);
+            // printf("index: %d\n", i);
             sprintf(p2c_fifo_buf, "p2c_%i", i);
             sprintf(c2p_fifo_buf, "c2p_%i", i);
             
@@ -270,7 +277,7 @@ void makeFifos()
                 perror("fifo-c2p");
                 exit(1);
             }
-            printf("finished %d\n", i);
+            // printf("finished %d\n", i);
         }   
 
     } 
@@ -284,14 +291,14 @@ void initPipe()
     if (g.isParent) {
         // Parent
         // make and attach to all
-        printf("in initPipe from parent\n");
+        // printf("in initPipe from parent\n");
         for (int i = 0; i < NUM_BOXES; i++) {
             // make  PtoC FIFOs
-            printf("int initPipe, i: %d\n", i);
+            // printf("int initPipe, i: %d\n", i);
             sprintf(p2c_fifo_buf, "p2c_%i", i);
             sprintf(c2p_fifo_buf, "c2p_%i", i);
 
-            printf("opening the fifos\n");
+            // printf("opening the fifos\n");
             g.c2p_fd_FIFO[i] = open(c2p_fifo_buf, O_RDONLY | O_NONBLOCK); // reads c2p
             g.p2c_fd_FIFO[i] = open(p2c_fifo_buf, O_WRONLY); // writes p2c
         
@@ -305,13 +312,13 @@ void initPipe()
                 exit(EXIT_FAILURE);
             }
 
-            printf("finished %d\n", i);
+            // printf("finished %d\n", i);
             // getchar();
         }   
 
     } else {
         // child
-        printf("in initPipe from child\n");
+        // printf("in initPipe from child\n");
 
         // just attach to the one the parent made
         sprintf(p2c_fifo_buf ,"p2c_%i", g.index);
@@ -494,7 +501,7 @@ void init_globals()
     int YPAD = 20;
     int XPAD = (int)(  (g.xres - (XSTART) - (NUM_BOXES*WIDTH))  / NUM_BOXES );
     int YSTART = (g.yres - HEIGHT - YPAD);
-    printf("width: %d\n",WIDTH);
+    // printf("width: %d\n",WIDTH);
 
 
     for (int i = 0; i < NUM_BOXES; i++) {
@@ -502,7 +509,7 @@ void init_globals()
         boxes[i].dim.x = WIDTH;
         boxes[i].dim.y = HEIGHT;
         boxes[i].pos.x = XSTART + (i * WIDTH) + (i* XPAD);
-                    printf("xpos: %d\n",boxes[i].pos.x);
+                    // printf("xpos: %d\n",boxes[i].pos.x);
 
         boxes[i].pos.y = YSTART;
         boxes[i].color = 0x00003594;
@@ -847,7 +854,7 @@ void *getWindowCoords(void* n) {
                             || (translCoords.y != boxes[bcd.box_index].pos.y))) {
                             boxes[bcd.box_index].pos.x = translCoords.x;
                             boxes[bcd.box_index].pos.y = translCoords.y;
-                            printf("setting box[%d] to (%d,%d)\n",bcd.box_index, translCoords.x, translCoords.y);
+                            // printf("setting box[%d] to (%d,%d)\n",bcd.box_index, translCoords.x, translCoords.y);
                             break;
                         }
                         break;
