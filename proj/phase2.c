@@ -120,6 +120,7 @@ int main(int argc, char *argv[], char *envp[]) {
         if ( g.mytimer < 0 ) {
             g.mytimer = 0; 
             printf("Usage: %s [timer duration (positive)]\n", argv[0]);
+            printf("continuing with timer set to 0...\n");
         }
         g.isParent = 0;
 
@@ -131,15 +132,18 @@ int main(int argc, char *argv[], char *envp[]) {
         if ( g.mytimer < 0 ) {
             g.mytimer = 0; 
             printf("Usage: %s [timer duration (positive)]\n", argv[0]);
+            printf("continuing with timer set to 0...\n");
         }
     } else if (argc == 1) {
         g.mytimer = 0;
         g.isParent = 1;
         // will create mqid and no timer
         printf("Usage: %s [timer duration (positive)]\n", argv[0]);
+        printf("continuing with timer set to 0...\n");
 
     } else {
         printf("Usage: %s [timer duration (positive)]\n", argv[0]);
+        return 1;
     }
 
     XEvent e;
