@@ -124,6 +124,7 @@ void start_child_win(int idx);
 void sigusr1_handler(int sig);
 int check_winner(void);
 void randomize_colors();
+void rand_color();
 void createChildWindows(void);
 void floorCeil(struct Box *b);
 Vec2 box2Screen(const BoxClickData * bcd);
@@ -166,6 +167,9 @@ int main(int argc, char *argv[], char *envp[]) {
 
     g.thread_active = 1;
     pthread_create(&g.tid, NULL, getWindowCoords, (void*)NULL);
+
+    usleep(8000);   // wait until children are setup
+    if (g.isParent == 1) randomize_colors();
 
     while (!mdone && !kdone) {
         /* Check the event queue */
@@ -449,7 +453,7 @@ void rand_color() {
 
 void init_globals()
 {
-    srand(time(NULL));
+    srand(time(NULL)+g.index);
 
     g.num_children = 0;
 
@@ -480,9 +484,15 @@ void init_globals()
         perror("sigaction SIGUSR1");
         exit(1);
     }
-    int HEIGHT = 90, XSTART = 12, YPAD = 20;
-    int WIDTH = 160;
-    int XPAD = (int)((g.xres - (XSTART) - (NUM_BOXES*WIDTH))/NUM_BOXES);
+
+    int WIDTH = ((g.xres * g.xres)*(1.0))/g.screenResolution.x;
+    int HEIGHT = ((g.yres*g.yres)*(1.0) + 25)/g.screenResolution.y;
+
+    // int HEIGHT = 9*10;
+    // int WIDTH = 16*10;
+    int XSTART = 12;
+    int YPAD = 20;
+    int XPAD = (int)(  (g.xres - (XSTART) - (NUM_BOXES*WIDTH))  / NUM_BOXES );
     int YSTART = (g.yres - HEIGHT - YPAD);
     printf("width: %d\n",WIDTH);
 
@@ -495,8 +505,8 @@ void init_globals()
                     printf("xpos: %d\n",boxes[i].pos.x);
 
         boxes[i].pos.y = YSTART;
-        boxes[i].color = rand()%0x00FFFFFF;
-        boxes[i].text_color = rand()%0x00FFFFFF;
+        boxes[i].color = 0x00003594;
+        boxes[i].text_color = 0x00ffffff;
         boxes[i].enabled = 1;
     }
 
@@ -696,7 +706,7 @@ void render(void) {
                 sprintf(buf4, "(%d,%d)", boxes[i].pos.x, boxes[i].pos.y);
                 XSetForeground(g.dpy, g.gc, boxes[i].color);
                 XFillRectangle(g.dpy, g.win, g.gc, boxes[i].pos.x, boxes[i].pos.y, boxes[i].dim.x, boxes[i].dim.y);
-                XSetForeground(g.dpy, g.gc, 0x00ffffff);
+                XSetForeground(g.dpy, g.gc, boxes[i].text_color);
                 x11_setFont(3);
                 XDrawString(g.dpy, g.win, g.gc, 
                                 (boxes[i].pos.x)+5, (boxes[i].pos.y)+40, buf4, strlen(buf4));
@@ -795,7 +805,7 @@ void *getWindowCoords(void* n) {
     Window child;
 
     BoxClickData bcd;
-    // static Vec2 savedWinCoords = {-1, -1};
+    static Vec2 savedWinCoords = {-1, -1};
 
     initPipe();
 
@@ -822,9 +832,20 @@ void *getWindowCoords(void* n) {
                         #ifdef DEBUG
                         printf("parent got a MOVE message from %d\n",bcd.box_index);
                         #endif // DEBUG
-                        bcd.dim = boxes[bcd.box_index].dim; // put dim into param
-                        Vec2 newCoords = screen2Box(&bcd);
-                        boxes[bcd.box_index].pos = newCoords;
+
+                        bcd.dim = boxes[bcd.box_index].dim;
+                        Vec2 translCoords = screen2Box(&bcd);
+                        
+                        // if i as the parent am not currently moving the box
+                        // and the boxes position has moved
+                        if (!g.isClickingOnBox &&
+                            ((translCoords.x != boxes[bcd.box_index].pos.x)
+                            || (translCoords.y != boxes[bcd.box_index].pos.y))) {
+                            boxes[bcd.box_index].pos.x = translCoords.x;
+                            boxes[bcd.box_index].pos.y = translCoords.y;
+                            printf("setting box[%d] to (%d,%d)\n",bcd.box_index, translCoords.x, translCoords.y);
+                            break;
+                        }
                         break;
                     }
 
@@ -866,6 +887,18 @@ void *getWindowCoords(void* n) {
                
             }
 
+            if ((g.myPos.x != savedWinCoords.x)
+                || (g.myPos.y != savedWinCoords.y)) {
+
+                bcd.t = MOVE;
+                bcd.box_index = g.index;
+                bcd.pos = g.myPos;
+                // XMoveWindow(g.dpy, g.win, bcd.pos.x, bcd.pos.y);
+                write(g.c2p_fd_FIFO[g.index], &bcd, sizeof(bcd));
+            
+                savedWinCoords = g.myPos;
+            }
+
         }
          usleep(4000);
     }
@@ -895,7 +928,9 @@ bool checkBoxClick(int mx, int my, BoxClickData* bcd) {
                 bcd->box_index = i;
                 return true;
             }
-        }
+        } 
+        // else wasn't clicking on a parent
+        bcd->t = NONE;
 
     } else {
         // isChild
@@ -941,19 +976,20 @@ void floorCeil(struct Box *b) {
 // comes in as box position, leaves as screen position
 Vec2 box2Screen(const BoxClickData * bcd)
 {
-    int newX = (bcd->pos.x)*(((float)(g.screenResolution.x-g.xres))/(g.xres-bcd->dim.x));
-    int newY = (bcd->pos.y)*(((float)(g.screenResolution.y-g.yres))/(g.yres-bcd->dim.y));
+    float newX = ((bcd->pos.x)*(g.screenResolution.x))/(g.xres*1.0);
+    float newY = ((bcd->pos.y)*(g.screenResolution.y))/(g.yres*1.0);
 
-    Vec2 ret = {newX, newY};
+    Vec2 ret = {(int)newX, (int)newY};
 
     return ret;
 }
 
-// comes in as screen position, leaves as box position
+// comes in as screen position, leaves as box position 
 Vec2 screen2Box(const BoxClickData * bcd)
 {
-    float newX = (bcd->pos.x)*((g.xres-bcd->dim.x)*(1.0)/(g.screenResolution.x-g.xres));
-    float newY = (bcd->pos.y)*((g.yres-bcd->dim.y)*(1.0)/(g.screenResolution.y-g.yres));
+
+    float newX = ((bcd->pos.x)*(g.xres))/(g.screenResolution.x*1.0);
+    float newY = ((bcd->pos.y)*(g.yres))/(g.screenResolution.y*1.0);
 
     Vec2 ret = {(int)newX, (int)newY};
 
