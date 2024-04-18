@@ -471,6 +471,10 @@ int check_keys(XEvent *e) {
                         g.isShowingBoxes = true;
                         g.num_children++;
                         printf("g.num_children: %d\n",g.num_children); fflush(stdout);
+                        MsgData msgD;
+                        msgD.t = MOVE;
+                        msgD.pos = g.myPos;
+                        write(g.p2c_pipes[SEND], &msgD, sizeof(msgD));
                         // printf("g.num_children: %d\n",g.num_children);
                         // fflush(stdout);
                     }
