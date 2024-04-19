@@ -229,6 +229,8 @@ int main(int argc, char *argv[], char *envp[]) {
     } 
 
     x11_cleanup_xwindows();
+    printf("                                                   \n"); // clear line from mouse movement print statements
+    fflush(stdout);
     exit(0);
 
 }
@@ -367,6 +369,7 @@ int check_mouse(XEvent *e) {
     static int savey = 0;
     static MsgData msgD;
     int retVal = 0;
+    static int sum = 0;
 
     int mx = e->xbutton.x;
     int my = e->xbutton.y;
@@ -391,8 +394,10 @@ int check_mouse(XEvent *e) {
                 if (msgD.box_num >= 0 && msgD.box_num < NUM_BOXES) {
                     if (msgD.box_num == (NUM_BOXES)-1) {
                         msgD.t = KILL_SIG;
-                        g.num_children--;
-                        g.isShowingBoxes = 0;
+                        if (--g.num_children <= 0) {
+                            g.num_children = 0;
+                            g.isShowingBoxes = 0;
+                        }
                     }
 
                     write(g.p2c_pipes[SEND], &msgD, sizeof(msgD));
@@ -410,11 +415,44 @@ int check_mouse(XEvent *e) {
     if (e->type == MotionNotify) {
         if (savex != mx || savey != my) {
             /*mouse moved*/
-            g.mx = mx;
-            g.my = my;
-
             savex = mx;
             savey = my;
+            g.mx = mx;
+            g.my = my;
+            sum += 1;
+            if (g.isParent == 1) {
+                int n = sum%3;
+                switch (n) {
+                    case 0:
+                        printf("oOo You're Moving the Mouse over the Parent oOo\r");
+                        break;
+                    case 1:
+                        printf("OoO You're Moving the Mouse over the Parent OoO\r");
+                        break;
+                    case 2:
+                        printf("ooo You're Moving the Mouse over the Parent ooo\r");
+                        break;
+                    default:
+                        break;
+                }
+                fflush(stdout);
+            } else {
+                int n = sum%3;
+                switch (n) {
+                    case 0:
+                        printf("oOo You're Moving the Mouse over a Child oOo   \r");
+                        break;
+                    case 1:
+                        printf("OoO You're Moving the Mouse over a Child OoO   \r");
+                        break;
+                    case 2:
+                        printf("ooo You're Moving the Mouse over a Child ooo   \r");
+                        break;
+                    default:
+                        break;
+                }
+                fflush(stdout);
+            }
         }
         retVal = 0;
     }
@@ -445,18 +483,35 @@ int check_keys(XEvent *e) {
                 // only let parent use escape button
                 // children must be sent the signal from the parent
                 
+                MsgData msgD;
                 if (g.isParent) {
-                    printf("supposed to be sending a kill sig...\n");
-                    MsgData msgD;
+
+                    #ifdef DEBUG
+                    printf("sending a kill sig...\n");
+                    #endif // DEBUG                    
+                    
                     msgD.t = KILL_SIG;
                     for (int i = 0; i < g.num_children; i++) {
                         msgD.box_num = i;
+
+                        #ifdef DEBUG
                         printf("sending kill sig to %d on fd: %d", i, g.p2c_pipes[SEND]); fflush(stdout);
+                        #endif // DEBUG
+                        
                         write(g.p2c_pipes[SEND], &msgD, sizeof(msgD));
                     }
                     // g.thread_active = 0;
                     return 1;
-                } 
+                } else {
+                    #ifdef DEBUG
+                    printf("quiting child only...\n");
+                    #endif // DEBUG  
+                    msgD.t = REMOVE_CHILD;
+                    write(g.c2p_pipes[SEND], &msgD, sizeof(msgD));
+
+                    return 1;
+
+                }
             }
             
             case XK_c:
@@ -470,7 +525,11 @@ int check_keys(XEvent *e) {
                         // close(g.c2p_pipes[g.num_children][SEND]);
                         g.isShowingBoxes = true;
                         g.num_children++;
+
+                        #ifdef DEBUG
                         printf("g.num_children: %d\n",g.num_children); fflush(stdout);
+                        #endif // DEBUG
+                        
                         MsgData msgD;
                         msgD.t = MOVE;
                         msgD.pos = g.myPos;
@@ -507,12 +566,22 @@ void render(void) {
     if (g.isParent == 1 ) {
         // parent after children spawn with controls
         strcpy(buf, "Parent Window");
-        strcpy(buf2, "Press c to spawn a child window");
+        if (g.isShowingBoxes) {
+            memset(buf2, 0, 128);
+        } else {
+            strcpy(buf2, "Press c to spawn a child window");
+
+        }
         sprintf(buf3, "Window Coords: (%d, %d)", g.myPos.x, g.myPos.y);
     } else {
         // children
         strcpy(buf, "Child Window");
-        strcpy(buf2, "You can't do much with me");
+        if (g.isShowingBoxes) {
+            memset(buf2, 0, 128);
+        } else {
+            strcpy(buf2, "Left Mouse Click to spawn boxes");
+
+        }
         sprintf(buf3, "Window Coords: (%d, %d)", g.myPos.x, g.myPos.y);
     }
 
@@ -633,19 +702,24 @@ void *readerThread(void* n) {
 
         // respond to pipe
         if (g.isParent) {
-            printf("in while as parent reading on %d\n", g.c2p_pipes[RCV]); fflush(stdout);
             while (read(g.c2p_pipes[RCV], &msgD, sizeof(msgD)) > 0) {
                 // switch on message type
+                #ifdef DEBUG
                 printf("got a message in the parent\n");
+                #endif // DEBUG
+                
                 switch (msgD.t)
                 {
-                // case MOVE: {
-                //     // parent - move above where child is
-                //     Vec2 newCoords = {msgD.pos.x, msgD.pos.y-g.yres};
-                //     XMoveWindow(g.dpy, g.win, newCoords.x, newCoords.y);
+                case REMOVE_CHILD: {
+                    // parent - move above where child is
+                    g.num_children--;
+                    if (--g.num_children <= 0) {
+                        g.num_children = 0;
+                        g.isShowingBoxes = 0;
+                    }
 
-                //     break;
-                // }
+                    break;
+                }
                 case COLOR_CHANGE: {
                     #ifdef DEBUG
                     printf("parent got a COLOR CHANGE message from %d\n",msgD.box_index);
@@ -671,10 +745,12 @@ void *readerThread(void* n) {
         } else {
             // child
             // bool coordsChanged = false;
-            printf("in while as child reading on %d\n", g.p2c_pipes[RCV]); fflush(stdout);
             while (read(g.p2c_pipes[RCV], &msgD, sizeof(msgD)) > 0) {
                     // switch on message
-                    printf("got a message in the child\n");
+
+                #ifdef DEBUG
+                printf("got a message in the child\n");
+                #endif // DEBUG                    
 
                 switch (msgD.t)
                 {
@@ -687,6 +763,7 @@ void *readerThread(void* n) {
                     #ifdef DEBUG
                     printf("parent got a COLOR_SIG message from %d\n",msgD.box_index);
                     #endif // DEBUG
+
                     g.background_color = msgD.box_color;
                     g.text_color = msgD.text_color;
                     break;
