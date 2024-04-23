@@ -75,6 +75,7 @@ struct Global {
     int scr;
     Vec2 screenResolution;
     XWindowAttributes xwa;
+    int boarderThickness;
     int xres, yres;
 
     int mx, my; // mouse positions
@@ -268,12 +269,12 @@ void x11_init_xwindows(void)
     g.scr = DefaultScreen(g.dpy);
     g.screenResolution.x = DisplayWidth(g.dpy, g.scr);
     g.screenResolution.y = DisplayHeight(g.dpy, g.scr);
-    g.xres = 16*40;
-    g.yres = 9*40;
+    g.xres = 400;
+    g.yres = 200;
     g.win = XCreateSimpleWindow(g.dpy, RootWindow(g.dpy, g.scr), 1, 1,
             g.xres, g.yres, 0, 0x00FFFFFF, 0x00000000);
 
-    XStoreName(g.dpy, g.win, "mkausch phase2");
+    XStoreName(g.dpy, g.win, "mkausch phase3");
     g.gc = XCreateGC(g.dpy, g.win, 0, NULL);
     XMapWindow(g.dpy, g.win);
     XSelectInput(g.dpy, g.win, ExposureMask | StructureNotifyMask |
@@ -361,6 +362,20 @@ void init_globals()
     
     g.isClickingOnBox = 0;
     g.isShowingBoxes = 0;
+
+}
+
+void configure_notify(XEvent *e)
+{
+    //ConfigureNotify event is sent by the server if the window
+    //is resized, moved, etc.
+    if (e->type != ConfigureNotify)
+        return;
+    XConfigureEvent xce = e->xconfigure;
+    //Update the values of your window dimensions.
+    g.xres = xce.width;
+    g.yres = xce.height;
+    
 
 }
 
@@ -561,6 +576,7 @@ void render(void) {
     char buf2[128];
     char buf3[128];
     char buf4[32];
+    char buf5[128];
    
 
     if (g.isParent == 1 ) {
@@ -584,6 +600,8 @@ void render(void) {
         }
         sprintf(buf3, "Window Coords: (%d, %d)", g.myPos.x, g.myPos.y);
     }
+
+    sprintf(buf5, "boarder_width: %d", g.boarderThickness);
 
     // draw background
     XSetForeground(g.dpy, g.gc, g.background_color); 
@@ -609,11 +627,16 @@ void render(void) {
     XSetForeground(g.dpy, g.gc, g.text_color);
     x11_setFont(14);
     if (strlen(buf) > 0)
-        XDrawString(g.dpy, g.win, g.gc, (g.xres/2)-50, (g.yres/2), buf, strlen(buf));
+        XDrawString(g.dpy, g.win, g.gc, (g.xres/2)-50, (g.yres)*(1.0/4), buf, strlen(buf));
     if (strlen(buf2) > 0)
-        XDrawString(g.dpy, g.win, g.gc, (g.xres/2)-80, (g.yres/2)+20, buf2, strlen(buf2));
+        XDrawString(g.dpy, g.win, g.gc, (g.xres/2)-120, (g.yres*(1.0/4)+20), buf2, strlen(buf2));
     if (strlen(buf3) > 0)
-        XDrawString(g.dpy, g.win, g.gc, (g.xres/2)-80, (g.yres/2)+40, buf3, strlen(buf3));
+        XDrawString(g.dpy, g.win, g.gc, (g.xres/2)-120, (g.yres * (1.0/4)) + 40, buf3, strlen(buf3));
+    if (strlen(buf5) > 0)
+        XDrawString(g.dpy, g.win, g.gc, (g.xres/2)-120, (g.yres * (1.0/4)) + 60, buf5, strlen(buf5));
+
+
+        // TODO: border thickness text
 
 
     // draw bouncy box if child window
@@ -875,7 +898,7 @@ void *getWindowCoords(void* n) {
         // get coords
         XGetWindowAttributes(g.dpy, root, &g.xwa);
         XTranslateCoordinates(g.dpy, g.win, root, g.xwa.x, g.xwa.y, &g.myPos.x, &g.myPos.y, &child);
-        
+
         if (!init) {
             savedWinCoords = g.myPos;
             init = true;
@@ -886,7 +909,11 @@ void *getWindowCoords(void* n) {
 
             savedWinCoords = g.myPos;
             msgD.t = MOVE;
-            msgD.pos = g.myPos;
+            
+            // account for boarder thickness? needs testing on school computers
+            msgD.pos.x = g.myPos.x - g.boarderThickness; 
+            msgD.pos.y = g.myPos.y;
+            
 
             if (g.isParent) {
                 // send update message to child
@@ -896,6 +923,10 @@ void *getWindowCoords(void* n) {
             //     write(g.c2p_pipes[SEND], &msgD, sizeof(msgD));
             // }
         }
+
+        if (g.boarderThickness != g.xwa.border_width)
+            g.boarderThickness = g.xwa.border_width;
+        
         usleep(4000);
     }
 
