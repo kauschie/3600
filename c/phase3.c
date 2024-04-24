@@ -75,7 +75,7 @@ struct Global {
     int scr;
     Vec2 screenResolution;
     XWindowAttributes xwa;
-    int boarderThickness;
+    int boarderWidth;
     int xres, yres;
 
     int mx, my; // mouse positions
@@ -125,6 +125,8 @@ void floorCeil(struct Box *b);
 Vec2 box2Screen(const MsgData * bcd);
 Vec2 screen2Box(const MsgData * bcd);
 MsgData checkBoxClick(int mx, int my);
+void configure_notify(XEvent *e);
+
 
 int main(int argc, char *argv[], char *envp[]) {
 
@@ -163,6 +165,7 @@ int main(int argc, char *argv[], char *envp[]) {
         while (XPending(g.dpy) && !mdone && !kdone) {
             XNextEvent(g.dpy, &e);
             // check_mouse(&e);
+            configure_notify(&e);
             mdone = check_mouse(&e);
             kdone = check_keys(&e);
         }
@@ -365,19 +368,19 @@ void init_globals()
 
 }
 
-void configure_notify(XEvent *e)
-{
-    //ConfigureNotify event is sent by the server if the window
-    //is resized, moved, etc.
-    if (e->type != ConfigureNotify)
-        return;
-    XConfigureEvent xce = e->xconfigure;
-    //Update the values of your window dimensions.
-    g.xres = xce.width;
-    g.yres = xce.height;
+// void configure_notify(XEvent *e)
+// {
+//     //ConfigureNotify event is sent by the server if the window
+//     //is resized, moved, etc.
+//     if (e->type != ConfigureNotify)
+//         return;
+//     XConfigureEvent xce = e->xconfigure;
+//     //Update the values of your window dimensions.
+//     g.xres = xce.width;
+//     g.yres = xce.height;
     
 
-}
+// }
 
 int check_mouse(XEvent *e) {
     static int savex = 0;
@@ -601,7 +604,7 @@ void render(void) {
         sprintf(buf3, "Window Coords: (%d, %d)", g.myPos.x, g.myPos.y);
     }
 
-    sprintf(buf5, "boarder_width: %d", g.boarderThickness);
+    sprintf(buf5, "boarder_width: %d", g.boarderWidth);
 
     // draw background
     XSetForeground(g.dpy, g.gc, g.background_color); 
@@ -886,6 +889,20 @@ Vec2 screen2Box(const MsgData * msgD)
     return ret;
 }
 
+void configure_notify(XEvent *e)
+    {
+        //ConfigureNotify event is sent by the server if the window
+        //is resized, moved, etc.
+        if (e->type != ConfigureNotify)
+            return;
+        XConfigureEvent xce = e->xconfigure;
+
+        g.boarderWidth = xce.border_width;
+        //Update the values of your window dimensions.
+        g.xres = xce.width;
+        g.yres = xce.height;
+    }
+
 void *getWindowCoords(void* n) {
     Window root = DefaultRootWindow(g.dpy);
     Window child;
@@ -902,6 +919,7 @@ void *getWindowCoords(void* n) {
         if (!init) {
             savedWinCoords = g.myPos;
             init = true;
+            g.boarderWidth = 0;
         }
 
         if ((savedWinCoords.x != g.myPos.x)
@@ -911,7 +929,7 @@ void *getWindowCoords(void* n) {
             msgD.t = MOVE;
             
             // account for boarder thickness? needs testing on school computers
-            msgD.pos.x = g.myPos.x - g.boarderThickness; 
+            msgD.pos.x = g.myPos.x - g.boarderWidth; 
             msgD.pos.y = g.myPos.y;
             
 
@@ -924,9 +942,11 @@ void *getWindowCoords(void* n) {
             // }
         }
 
-        if (g.boarderThickness != g.xwa.border_width)
-            g.boarderThickness = g.xwa.border_width;
-        
+        /*
+        if (g.boarderWidth != g.xwa.border_width)
+            g.boarderWidth = g.xwa.border_width;
+        */
+
         usleep(4000);
     }
 
