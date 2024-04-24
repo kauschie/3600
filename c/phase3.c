@@ -275,7 +275,7 @@ void x11_init_xwindows(void)
     g.xres = 400;
     g.yres = 200;
     g.win = XCreateSimpleWindow(g.dpy, RootWindow(g.dpy, g.scr), 1, 1,
-            g.xres, g.yres, 0, 0x00FFFFFF, 0x00000000);
+            g.xres, g.yres, 0, 0, 0x00000000);
 
     XStoreName(g.dpy, g.win, "mkausch phase3");
     g.gc = XCreateGC(g.dpy, g.win, 0, NULL);
@@ -283,7 +283,7 @@ void x11_init_xwindows(void)
     XSelectInput(g.dpy, g.win, ExposureMask | StructureNotifyMask |
             PointerMotionMask | ButtonPressMask |
             ButtonReleaseMask | KeyPressMask);
-    XSetWindowBorderWidth(g.dpy, g.win, 0);
+    XSetWindowBorder(g.dpy, g.win, 0);
 
 }
 
@@ -528,6 +528,7 @@ int check_keys(XEvent *e) {
                     msgD.t = REMOVE_CHILD;
                     write(g.c2p_pipes[SEND], &msgD, sizeof(msgD));
 
+                    exit(0);
                     return 1;
 
                 }
