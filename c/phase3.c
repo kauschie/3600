@@ -283,6 +283,7 @@ void x11_init_xwindows(void)
     XSelectInput(g.dpy, g.win, ExposureMask | StructureNotifyMask |
             PointerMotionMask | ButtonPressMask |
             ButtonReleaseMask | KeyPressMask);
+    XSetWindowBorderWidth(g.dpy, g.win, 0);
 
 }
 
