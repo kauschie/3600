@@ -48,3 +48,8 @@ b/cache_check
 proj/moveit
 proj/pipemv
 c/phase3
+d/rvlab13
+d/test.c
+d/a.out
+d/timed-wait
+d/cond-wait

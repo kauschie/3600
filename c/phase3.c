@@ -519,8 +519,10 @@ int check_keys(XEvent *e) {
                         
                         write(g.p2c_pipes[SEND], &msgD, sizeof(msgD));
                     }
+
+                    exit(0);
                     // g.thread_active = 0;
-                    return 1;
+                    // return 1;
                 } else {
                     #ifdef DEBUG
                     printf("quiting child only...\n");
@@ -529,7 +531,7 @@ int check_keys(XEvent *e) {
                     write(g.c2p_pipes[SEND], &msgD, sizeof(msgD));
 
                     exit(0);
-                    return 1;
+                    // return 1;
 
                 }
             }
@@ -581,7 +583,7 @@ void render(void) {
     char buf2[128];
     char buf3[128];
     char buf4[32];
-    char buf5[128];
+    // char buf5[128];
    
 
     if (g.isParent == 1 ) {
@@ -606,7 +608,7 @@ void render(void) {
         sprintf(buf3, "Window Coords: (%d, %d)", g.myPos.x, g.myPos.y);
     }
 
-    sprintf(buf5, "boarder_width: %d", g.boarderWidth);
+    // sprintf(buf5, "boarder_width: %d", g.boarderWidth);
 
     // draw background
     XSetForeground(g.dpy, g.gc, g.background_color); 
@@ -637,8 +639,8 @@ void render(void) {
         XDrawString(g.dpy, g.win, g.gc, (g.xres/2)-120, (g.yres*(1.0/4)+20), buf2, strlen(buf2));
     if (strlen(buf3) > 0)
         XDrawString(g.dpy, g.win, g.gc, (g.xres/2)-120, (g.yres * (1.0/4)) + 40, buf3, strlen(buf3));
-    if (strlen(buf5) > 0)
-        XDrawString(g.dpy, g.win, g.gc, (g.xres/2)-120, (g.yres * (1.0/4)) + 60, buf5, strlen(buf5));
+    // if (strlen(buf5) > 0)
+    //     XDrawString(g.dpy, g.win, g.gc, (g.xres/2)-120, (g.yres * (1.0/4)) + 60, buf5, strlen(buf5));
 
 
         // TODO: border thickness text
