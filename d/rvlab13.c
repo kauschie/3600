@@ -42,7 +42,7 @@ int main(int argc, char **argv)
 	if (argc==2) {
 		fibnumber = atoi(argv[1]);
 	} else {
-		printf("Usage: %s <delay> <max eats>\n", argv[0]);
+		printf("Usage: %s [delay] \n", argv[0]);
 		if (argc > 2) {
 			perror("bad program usage");
 			exit(0xDEADC0DE);
