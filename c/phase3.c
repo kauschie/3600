@@ -503,6 +503,7 @@ int check_keys(XEvent *e) {
                 // children must be sent the signal from the parent
                 
                 MsgData msgD;
+                void* status;
                 if (g.isParent) {
 
                     #ifdef DEBUG
@@ -520,9 +521,13 @@ int check_keys(XEvent *e) {
                         write(g.p2c_pipes[SEND], &msgD, sizeof(msgD));
                     }
 
+                    g.thread_active = 0;
+                    // printf("parent joining thread 0...\n");
+                    // pthread_join(g.tid[0], &status);
+                    printf("parent joining thread 1...\n");
+                    pthread_join(g.tid[1], &status); // prevents xtranslatecoord error by waiting for thread to finish first before exiting
                     exit(0);
-                    // g.thread_active = 0;
-                    // return 1;
+
                 } else {
                     #ifdef DEBUG
                     printf("quiting child only...\n");
@@ -530,10 +535,16 @@ int check_keys(XEvent *e) {
                     msgD.t = REMOVE_CHILD;
                     write(g.c2p_pipes[SEND], &msgD, sizeof(msgD));
 
+                    g.thread_active = 0;
+                    // printf("child joining thread 0...\n");
+                    // pthread_join(g.tid[0], &status);
+                    // printf("child joining thread 1...\n");
+                    pthread_join(g.tid[1], &status);    // prevents xtranslatecoord error by waiting for thread to finish first before exiting
+
                     exit(0);
-                    // return 1;
 
                 }
+                
             }
             
             case XK_c:
@@ -614,6 +625,13 @@ void render(void) {
     XSetForeground(g.dpy, g.gc, g.background_color); 
     XFillRectangle(g.dpy, g.win, g.gc, 0, 0, g.xres, g.yres);
 
+        // draw bouncy box if child window
+    if (g.isParent == 0) {
+        // box
+        XSetForeground(g.dpy, g.gc, boxy.color);
+        XFillRectangle(g.dpy, g.win, g.gc, boxy.pos.x, boxy.pos.y, boxy.dim.x, boxy.dim.y);
+    }
+
     if (g.isShowingBoxes) {
         for (int i = 0; i < NUM_BOXES; i++) {
             // printf("xpos: %d\n", boxes[i].pos.x);
@@ -643,15 +661,10 @@ void render(void) {
     //     XDrawString(g.dpy, g.win, g.gc, (g.xres/2)-120, (g.yres * (1.0/4)) + 60, buf5, strlen(buf5));
 
 
-        // TODO: border thickness text
+        // TODO:  text on boxes
 
 
-    // draw bouncy box if child window
-    if (g.isParent == 0) {
-        // box
-        XSetForeground(g.dpy, g.gc, boxy.color);
-        XFillRectangle(g.dpy, g.win, g.gc, boxy.pos.x, boxy.pos.y, boxy.dim.x, boxy.dim.y);
-    }
+
     
 }
 
