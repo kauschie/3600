@@ -41,7 +41,9 @@ Refactor a bit
 #define RCV 0
 
 typedef enum {false, true} bool;
-enum MsgType { PTOC = 25, CTOP = 50, CLICK=10, KILL_SIG=20, REMOVE_CHILD=30, COLOR_CHANGE=40, MOVE=50, COLOR_SIG=60, MAKE_CHILD=70, NONE=99};
+enum MsgType { PTOC = 25, CTOP = 50, CLICK=10, KILL_SIG=20, 
+                REMOVE_CHILD=30, COLOR_CHANGE=40, MOVE=50, COLOR_SIG=60, 
+                MAKE_CHILD=70, RESIZE=80, NONE=99 };
 
 typedef struct {
     int x;
@@ -112,7 +114,6 @@ void render(void);
 void physics(void);
 void x11_setFont(unsigned int idx);
 void *readerThread(void* n);
-void *getWindowCoords(void* n);
 void init_globals();
 void makePipes();
 void start_child_win();
@@ -122,7 +123,8 @@ int check_winner(void);
 void rand_color();
 void createChildWindows(void);
 void floorCeil(struct Box *b);
-Vec2 box2Screen(const MsgData * bcd);
+// Vec2 box2Screen(const MsgData * bcd);
+Vec2 box2Screen(Vec2 * p);
 Vec2 screen2Box(const MsgData * bcd);
 MsgData checkBoxClick(int mx, int my);
 void configure_notify(XEvent *e);
@@ -169,7 +171,6 @@ int main(int argc, char *argv[], char *envp[]) {
 
     g.thread_active = 1;
     pthread_create(&g.tid[0], NULL, readerThread, (void*)NULL);
-    // pthread_create(&g.tid[1], NULL, getWindowCoords, (void*)NULL);
 
     while (!mdone && !kdone) {
         /* Check the event queue */
@@ -631,6 +632,7 @@ void render(void) {
     char buf4[32];
     char buf5[] = "DVD";
     char buf6[] = "X";
+    char buf7[32];
     // char buf5[128];
    
 
@@ -638,7 +640,8 @@ void render(void) {
         // parent after children spawn with controls
         strcpy(buf, "Parent Window");
         if (g.isShowingBoxes) {
-            memset(buf2, 0, 128);
+            // memset(buf2, 0, 128);
+            strcpy(buf2, "Press 1 to randomize the colors");
         } else {
             strcpy(buf2, "Press c to spawn a child window");
 
@@ -648,7 +651,7 @@ void render(void) {
         // children
         strcpy(buf, "Child Window");
         if (g.isShowingBoxes) {
-            memset(buf2, 0, 128);
+            strcpy(buf2, "Press 1 to randomize the colors");
         } else {
             strcpy(buf2, "Left Mouse Click to spawn boxes");
 
@@ -673,20 +676,33 @@ void render(void) {
     }
 
     if (g.isShowingBoxes) {
+        const int BOARDER = 1;
+        Vec2 screen_coord;
+
         for (int i = 0; i < NUM_BOXES; i++) {
             // printf("xpos: %d\n", boxes[i].pos.x);
             if (boxes[i].enabled) {
-                sprintf(buf4, "(%d,%d)", boxes[i].pos.x, boxes[i].pos.y);
+                screen_coord = box2Screen(&(boxes[i].pos));
+                sprintf(buf4, "(%d,%d)", screen_coord.x, screen_coord.y);
+                sprintf(buf7, "(%d,%d)", boxes[i].pos.x, boxes[i].pos.y);
                 XSetForeground(g.dpy, g.gc, boxes[i].color);
                 XFillRectangle(g.dpy, g.win, g.gc, boxes[i].pos.x, boxes[i].pos.y, boxes[i].dim.x, boxes[i].dim.y);
                 XSetForeground(g.dpy, g.gc, boxes[i].text_color);
                 x11_setFont(3);
                 XDrawString(g.dpy, g.win, g.gc, 
                                 (boxes[i].pos.x)+5, (boxes[i].pos.y)+40, buf4, strlen(buf4));
+                XDrawString(g.dpy, g.win, g.gc, 
+                                (boxes[i].pos.x)+5, (boxes[i].pos.y)+60, buf7, strlen(buf7));
                 if ((i == NUM_BOXES-1)&&(g.isParent)) {
+
+                    XSetForeground(g.dpy, g.gc, 0x000000);
+                    XDrawRectangle(g.dpy, g.win, g.gc, 
+                                    boxes[i].pos.x-BOARDER, boxes[i].pos.y-BOARDER,
+                                    boxes[i].dim.x+(2*BOARDER), boxes[i].dim.y+(2*BOARDER));
+                    XSetForeground(g.dpy, g.gc, boxes[i].text_color);
                     x11_setFont(14);
                     XDrawString(g.dpy, g.win, g.gc, 
-                                (boxes[i].pos.x+(boxes[i].dim.x>>1)), (boxes[i].pos.y + (boxes[i].dim.y*0.75)), buf6, strlen(buf6));
+                                (boxes[i].pos.x+(boxes[i].dim.x>>1)), (boxes[i].pos.y + (boxes[i].dim.y*0.2)), buf6, strlen(buf6));
                 
                 }
             }
@@ -861,7 +877,7 @@ void *readerThread(void* n) {
                 }
                 case COLOR_SIG: {
                     #ifdef DEBUG
-                    printf("parent got a COLOR_SIG message from %d\n",msgD.box_index);
+                    printf("parent got a COLOR_SIG message\n");
                     #endif // DEBUG
                     g.background_color = msgD.box_color;
                     g.text_color = msgD.text_color;
@@ -906,7 +922,20 @@ void *readerThread(void* n) {
                     XMoveWindow(g.dpy, g.win, newCoords.x, newCoords.y);
                     break;
                 }
-                
+                case RESIZE: {
+                    // #ifdef DEBUG
+                    printf("parent got a RESIZE message from\n");
+                    // #endif // DEBUG
+
+                    XWindowChanges changes;
+                    changes.x = msgD.pos.x;
+                    changes.y = msgD.pos.y + msgD.dim.y;
+                    changes.height = msgD.dim.y;
+                    changes.width = msgD.dim.x;
+                    // XResizeWindow(g.dpy, g.win, msgD.dim.x, msgD.dim.y);
+                    XConfigureWindow(g.dpy, g.win, CWX | CWY | CWWidth | CWHeight, &changes);
+                    break;
+                }
                 default:
                     break;
                 }
@@ -974,13 +1003,21 @@ void floorCeil(struct Box *b) {
 }
 
 // comes in as box position, leaves as screen position
-Vec2 box2Screen(const MsgData * msgD)
+// Vec2 box2Screen(const MsgData * msgD)
+// {
+//     float newX = ((msgD->pos.x)*(g.screenResolution.x))/(g.xres*1.0);
+//     float newY = ((msgD->pos.y)*(g.screenResolution.y))/(g.yres*1.0);
+
+//     Vec2 ret = {(int)newX, (int)newY};
+
+//     return ret;
+// }
+
+Vec2 box2Screen(Vec2 * p)
 {
-    float newX = ((msgD->pos.x)*(g.screenResolution.x))/(g.xres*1.0);
-    float newY = ((msgD->pos.y)*(g.screenResolution.y))/(g.yres*1.0);
-
-    Vec2 ret = {(int)newX, (int)newY};
-
+    Vec2 ret;
+    ret.x = g.myPos.x + (p->x);
+    ret.y = g.myPos.y + (p->y);
     return ret;
 }
 
@@ -1015,8 +1052,8 @@ void configure_notify(XEvent *e)
 
     g.boarderWidth = xce.border_width;
     //Update the values of your window dimensions.
-    g.xres = xce.width;
-    g.yres = xce.height;
+    // g.xres = xce.width;
+    // g.yres = xce.height;
     init_boxes();
     XGetWindowAttributes(g.dpy, root, &g.xwa);
     XTranslateCoordinates(g.dpy, g.win, root, g.xwa.x, g.xwa.y, &g.myPos.x, &g.myPos.y, &child);
@@ -1028,20 +1065,23 @@ void configure_notify(XEvent *e)
         g.boarderWidth = 0;
     }
 
+    // parent moved
     if ((savedWinCoords.x != g.myPos.x)
             || (savedWinCoords.y != g.myPos.y)) {
 
         savedWinCoords = g.myPos;
-        msgD.t = MOVE;
-        
-        // account for boarder thickness? needs testing on school computers
-        msgD.pos.x = g.myPos.x - g.boarderWidth; 
-        msgD.pos.y = g.myPos.y;
-        
-
         if (g.isParent) {
+
+            msgD.t = MOVE;
+            
+            // account for boarder thickness? needs testing on school computers
+            msgD.pos.x = g.myPos.x - g.boarderWidth; 
+            msgD.pos.y = g.myPos.y;
+        
             // send update message to child
-            // printf("sending message to child to move\n");
+            #ifdef DEBUG
+                printf("sending message to child to move\n");
+            #endif // DEBUG
             write(g.p2c_pipes[SEND], &msgD, sizeof(msgD));
         } 
         // else {
@@ -1049,56 +1089,24 @@ void configure_notify(XEvent *e)
         // }
     }
 
+    if (g.xres != xce.width || g.yres != xce.height) {
 
-}
+        g.xres = xce.width;
+        g.yres = xce.height;
 
-void *getWindowCoords(void* n) {
-    Window root = DefaultRootWindow(g.dpy);
-    Window child;
-    MsgData msgD;
-    static bool init = false;
-
-    static Vec2 savedWinCoords = {-1, -1};
-
-    while(g.thread_active) {
-        // get coords
-        XGetWindowAttributes(g.dpy, root, &g.xwa);
-        XTranslateCoordinates(g.dpy, g.win, root, g.xwa.x, g.xwa.y, &g.myPos.x, &g.myPos.y, &child);
-
-        if (!init) {
-            savedWinCoords = g.myPos;
-            init = true;
-            g.boarderWidth = 0;
+        if (g.isParent) {
+            msgD.t = RESIZE;
+            msgD.pos = g.myPos;
+            msgD.dim.x = g.xres;
+            msgD.dim.y = g.yres;
+            printf("parent sending resize msg to child\n");
+            write(g.p2c_pipes[SEND], &msgD, sizeof(msgD));
         }
 
-        if ((savedWinCoords.x != g.myPos.x)
-            || (savedWinCoords.y != g.myPos.y)) {
-
-            savedWinCoords = g.myPos;
-            msgD.t = MOVE;
-            
-            // account for boarder thickness? needs testing on school computers
-            msgD.pos.x = g.myPos.x - g.boarderWidth; 
-            msgD.pos.y = g.myPos.y;
-            
-
-            if (g.isParent) {
-                // send update message to child
-                write(g.p2c_pipes[SEND], &msgD, sizeof(msgD));
-            } 
-            // else {
-            //     write(g.c2p_pipes[SEND], &msgD, sizeof(msgD));
-            // }
-        }
-
-        /*
-        if (g.boarderWidth != g.xwa.border_width)
-            g.boarderWidth = g.xwa.border_width;
-        */
-
-        usleep(4000);
     }
+        
+        
 
 
-    return (void*)0;
 }
+
