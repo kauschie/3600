@@ -41,7 +41,7 @@ Refactor a bit
 #define RCV 0
 
 typedef enum {false, true} bool;
-enum MsgType { PTOC = 25, CTOP = 50, CLICK=10, KILL_SIG=20, REMOVE_CHILD=30, COLOR_CHANGE=40, MOVE=50, COLOR_SIG=60, NONE=99};
+enum MsgType { PTOC = 25, CTOP = 50, CLICK=10, KILL_SIG=20, REMOVE_CHILD=30, COLOR_CHANGE=40, MOVE=50, COLOR_SIG=60, MAKE_CHILD=70, NONE=99};
 
 typedef struct {
     int x;
@@ -115,7 +115,7 @@ void *readerThread(void* n);
 void *getWindowCoords(void* n);
 void init_globals();
 void makePipes();
-void start_child_win(int idx);
+void start_child_win();
 void sigusr1_handler(int sig);
 int check_winner(void);
 // void randomize_colors();
@@ -126,6 +126,9 @@ Vec2 box2Screen(const MsgData * bcd);
 Vec2 screen2Box(const MsgData * bcd);
 MsgData checkBoxClick(int mx, int my);
 void configure_notify(XEvent *e);
+void changeBoxyColor(void);
+void init_boxes(void);
+
 
 
 int main(int argc, char *argv[], char *envp[]) {
@@ -136,11 +139,13 @@ int main(int argc, char *argv[], char *envp[]) {
     /*   char *argv[] = {g.fname, read_fd_buf, write_fd_buf, NULL};     */
 
     // PARSE COMMAND LINE ARGS
-    if (argc == 3) {
+    if (argc == 7) {
         // child window - will make thread to look for window coords
         g.p2c_pipes[RCV] = atoi(argv[1]);
         g.c2p_pipes[SEND] = atoi(argv[2]);
         g.isParent = 0;
+        g.xres = atoi(argv[5]);
+        g.yres = atoi(argv[6]);
 
     } else if (argc == 1) {
         // parent window - will setupMQ
@@ -156,9 +161,15 @@ int main(int argc, char *argv[], char *envp[]) {
     x11_init_xwindows();
     init_globals();
 
+    if (!g.isParent) {
+        // move
+        XMoveWindow(g.dpy, g.win, atoi(argv[3]), atoi(argv[4])+g.yres);
+
+    }
+
     g.thread_active = 1;
     pthread_create(&g.tid[0], NULL, readerThread, (void*)NULL);
-    pthread_create(&g.tid[1], NULL, getWindowCoords, (void*)NULL);
+    // pthread_create(&g.tid[1], NULL, getWindowCoords, (void*)NULL);
 
     while (!mdone && !kdone) {
         /* Check the event queue */
@@ -272,8 +283,10 @@ void x11_init_xwindows(void)
     g.scr = DefaultScreen(g.dpy);
     g.screenResolution.x = DisplayWidth(g.dpy, g.scr);
     g.screenResolution.y = DisplayHeight(g.dpy, g.scr);
-    g.xres = 400;
-    g.yres = 200;
+    if(!g.xres || !g.yres) {
+        g.xres = 400;
+        g.yres = 200;
+    }
     g.win = XCreateSimpleWindow(g.dpy, RootWindow(g.dpy, g.scr), 1, 1,
             g.xres, g.yres, 0, 0, 0x00000000);
 
@@ -332,23 +345,7 @@ void init_globals()
         exit(1);
     }
 
-    const int XPAD = 10, HEIGHT = 80, XSTART = 12, 
-          WIDTH = (int)((g.xres - (XSTART) - (NUM_BOXES*XPAD))/NUM_BOXES), 
-          YPAD = 20,
-          YSTART = (g.yres - HEIGHT - YPAD);
-
-    for (int i = 0; i < NUM_BOXES; i++) {
-
-        boxes[i].dim.x = WIDTH;
-        boxes[i].dim.y = HEIGHT;
-        boxes[i].pos.x = XSTART + (i * WIDTH) + (i* XPAD);
-                    // printf("xpos: %d\n",boxes[i].pos.x);
-
-        boxes[i].pos.y = YSTART;
-        boxes[i].color = rand() & 0x00ffffff;
-        boxes[i].text_color = rand() & 0x00ffffff;
-        boxes[i].enabled = 1;
-    }
+    init_boxes();
 
     // init boxy if child
 
@@ -367,6 +364,31 @@ void init_globals()
     g.isClickingOnBox = 0;
     g.isShowingBoxes = 0;
 
+}
+
+void init_boxes(void) {
+    static int init = 0;
+
+    const int XPAD = 10, HEIGHT = 80, XSTART = 12, 
+          WIDTH = (int)((g.xres - (XSTART) - (NUM_BOXES*XPAD))/NUM_BOXES), 
+          YPAD = 20,
+          YSTART = (g.yres - HEIGHT - YPAD);
+
+    for (int i = 0; i < NUM_BOXES; i++) {
+
+        boxes[i].dim.x = WIDTH;
+        boxes[i].dim.y = HEIGHT;
+        boxes[i].pos.x = XSTART + (i * WIDTH) + (i* XPAD);
+                    // printf("xpos: %d\n",boxes[i].pos.x);
+
+        boxes[i].pos.y = YSTART;
+        if (!init) {
+            boxes[i].color = rand() & 0x00ffffff;
+            boxes[i].text_color = rand() & 0x00ffffff;
+            boxes[i].enabled = 1;
+        }
+    }
+    if (!init) init = 1;
 }
 
 // void configure_notify(XEvent *e)
@@ -503,7 +525,7 @@ int check_keys(XEvent *e) {
                 // children must be sent the signal from the parent
                 
                 MsgData msgD;
-                void* status;
+                // void* status;
                 if (g.isParent) {
 
                     #ifdef DEBUG
@@ -524,8 +546,8 @@ int check_keys(XEvent *e) {
                     g.thread_active = 0;
                     // printf("parent joining thread 0...\n");
                     // pthread_join(g.tid[0], &status);
-                    printf("parent joining thread 1...\n");
-                    pthread_join(g.tid[1], &status); // prevents xtranslatecoord error by waiting for thread to finish first before exiting
+                    // printf("parent joining thread 1...\n");
+                    // pthread_join(g.tid[1], &status); // prevents xtranslatecoord error by waiting for thread to finish first before exiting
                     exit(0);
 
                 } else {
@@ -539,7 +561,7 @@ int check_keys(XEvent *e) {
                     // printf("child joining thread 0...\n");
                     // pthread_join(g.tid[0], &status);
                     // printf("child joining thread 1...\n");
-                    pthread_join(g.tid[1], &status);    // prevents xtranslatecoord error by waiting for thread to finish first before exiting
+                    // pthread_join(g.tid[1], &status);    // prevents xtranslatecoord error by waiting for thread to finish first before exiting
 
                     exit(0);
 
@@ -548,10 +570,10 @@ int check_keys(XEvent *e) {
             }
             
             case XK_c:
-                if (g.isParent && !g.isShowingBoxes) {
+                if (g.isParent) {
                     int cpid = fork();
                     if (cpid == 0) {
-                        start_child_win(g.num_children);
+                        start_child_win();
                     } else {
                         // record all the cpids of the children
                         // close(g.p2c_pipes[g.num_children][RCV]);
@@ -570,6 +592,11 @@ int check_keys(XEvent *e) {
                         // printf("g.num_children: %d\n",g.num_children);
                         // fflush(stdout);
                     }
+                } else {
+                    // send message to parent to make a child
+                    MsgData msg;
+                    msg.t = MAKE_CHILD;
+                    write(g.c2p_pipes[SEND], &msg, sizeof(msg));
                 }
                 break;
         }
@@ -577,15 +604,23 @@ int check_keys(XEvent *e) {
     return 0;
 }
 
-void start_child_win(int idx) {
+void start_child_win() {
     char read_fd_buf[16];
     char write_fd_buf[16];
+    char xpos[16];
+    char ypos[16];
+    char xdim[16];
+    char ydim[16];
 
 
     sprintf(read_fd_buf, "%d", g.p2c_pipes[RCV]);
     sprintf(write_fd_buf, "%d", g.c2p_pipes[SEND]);
+    sprintf(xpos, "%d", g.myPos.x);
+    sprintf(ypos, "%d", g.myPos.y);
+    sprintf(xdim, "%d", g.xres);
+    sprintf(ydim, "%d", g.yres);
 
-    char *argv[] = {g.fname, read_fd_buf, write_fd_buf, NULL};
+    char *argv[] = {g.fname, read_fd_buf, write_fd_buf, xpos, ypos, xdim, ydim, NULL};
     execve(g.fname, argv, g.envp);
 }
 
@@ -594,6 +629,8 @@ void render(void) {
     char buf2[128];
     char buf3[128];
     char buf4[32];
+    char buf5[] = "DVD";
+    char buf6[] = "X";
     // char buf5[128];
    
 
@@ -630,6 +667,9 @@ void render(void) {
         // box
         XSetForeground(g.dpy, g.gc, boxy.color);
         XFillRectangle(g.dpy, g.win, g.gc, boxy.pos.x, boxy.pos.y, boxy.dim.x, boxy.dim.y);
+        XSetForeground(g.dpy, g.gc, boxy.text_color);
+        XDrawString(g.dpy, g.win, g.gc, 
+                                (boxy.pos.x + (boxy.dim.x>>1))-8, (boxy.pos.y + (boxy.dim.y>>1)), buf5, strlen(buf5));        
     }
 
     if (g.isShowingBoxes) {
@@ -643,7 +683,14 @@ void render(void) {
                 x11_setFont(3);
                 XDrawString(g.dpy, g.win, g.gc, 
                                 (boxes[i].pos.x)+5, (boxes[i].pos.y)+40, buf4, strlen(buf4));
+                if ((i == NUM_BOXES-1)&&(g.isParent)) {
+                    x11_setFont(14);
+                    XDrawString(g.dpy, g.win, g.gc, 
+                                (boxes[i].pos.x+(boxes[i].dim.x>>1)), (boxes[i].pos.y + (boxes[i].dim.y*0.75)), buf6, strlen(buf6));
+                
+                }
             }
+            
         }
     }
 
@@ -680,16 +727,31 @@ void physics(void)
         if (!boxy.winner) {
             boxy.pos.x += 1 * boxy.dir.x;
             boxy.pos.y += 1 * boxy.dir.y;
+            int hasChanged = 0;
 
             if (boxy.pos.x > (g.xres-boxy.dim.x) || boxy.pos.x < 0) {
                 boxy.dir.x *= -1;
+                hasChanged++;
             }
             if (boxy.pos.y > (g.yres-boxy.dim.y) || boxy.pos.y < 0) {
                 boxy.dir.y *= -1;
+                hasChanged++;
             }    
+            if (hasChanged > 0) {
+                hasChanged = 0;
+                changeBoxyColor();
+            }
 
         }
     }
+}
+
+void changeBoxyColor(void) {
+    static int idx = 0;
+
+    idx = (idx+1) % NUM_BOXES;
+    boxy.color = boxes[idx].text_color;
+    boxy.text_color = boxes[idx].color;
 }
 
 int check_winner(void)
@@ -755,12 +817,37 @@ void *readerThread(void* n) {
                 {
                 case REMOVE_CHILD: {
                     // parent - move above where child is
-                    g.num_children--;
+                    // g.num_children--;
                     if (--g.num_children <= 0) {
                         g.num_children = 0;
                         g.isShowingBoxes = 0;
                     }
 
+                    break;
+                }
+                case MAKE_CHILD: {
+
+                    int cpid = fork();
+                    if (cpid == 0) {
+                        start_child_win();
+                    } else {
+                        // record all the cpids of the children
+                        // close(g.p2c_pipes[g.num_children][RCV]);
+                        // close(g.c2p_pipes[g.num_children][SEND]);
+                        g.isShowingBoxes = true;
+                        g.num_children++;
+
+                        #ifdef DEBUG
+                        printf("g.num_children: %d\n",g.num_children); fflush(stdout);
+                        #endif // DEBUG
+                        
+                        MsgData msgD;
+                        msgD.t = MOVE;
+                        msgD.pos = g.myPos;
+                        write(g.p2c_pipes[SEND], &msgD, sizeof(msgD));
+                        // printf("g.num_children: %d\n",g.num_children);
+                        // fflush(stdout);
+                    }
                     break;
                 }
                 case COLOR_CHANGE: {
@@ -800,6 +887,8 @@ void *readerThread(void* n) {
 
                 case KILL_SIG: {
                     g.thread_active = 0;
+                    // void* status;
+                    // pthread_join(g.tid[1], &status);
                     break;
                 }
                 case COLOR_SIG: {
@@ -817,6 +906,7 @@ void *readerThread(void* n) {
                     XMoveWindow(g.dpy, g.win, newCoords.x, newCoords.y);
                     break;
                 }
+                
                 default:
                     break;
                 }
@@ -907,18 +997,60 @@ Vec2 screen2Box(const MsgData * msgD)
 }
 
 void configure_notify(XEvent *e)
-    {
-        //ConfigureNotify event is sent by the server if the window
-        //is resized, moved, etc.
-        if (e->type != ConfigureNotify)
-            return;
-        XConfigureEvent xce = e->xconfigure;
+{
+    Window root = DefaultRootWindow(g.dpy);
+    Window child;
+    MsgData msgD;
+    static bool init = false;
+    static Vec2 savedWinCoords = {-1, -1};
 
-        g.boarderWidth = xce.border_width;
-        //Update the values of your window dimensions.
-        g.xres = xce.width;
-        g.yres = xce.height;
+    //ConfigureNotify event is sent by the server if the window
+    //is resized, moved, etc.
+    if (e->type != ConfigureNotify)
+        return;
+
+
+    // printf("got a configNotify Event\n"); fflush(stdout);
+    XConfigureEvent xce = e->xconfigure;
+
+    g.boarderWidth = xce.border_width;
+    //Update the values of your window dimensions.
+    g.xres = xce.width;
+    g.yres = xce.height;
+    init_boxes();
+    XGetWindowAttributes(g.dpy, root, &g.xwa);
+    XTranslateCoordinates(g.dpy, g.win, root, g.xwa.x, g.xwa.y, &g.myPos.x, &g.myPos.y, &child);
+
+
+    if (!init) {
+        savedWinCoords = g.myPos;
+        init = true;
+        g.boarderWidth = 0;
     }
+
+    if ((savedWinCoords.x != g.myPos.x)
+            || (savedWinCoords.y != g.myPos.y)) {
+
+        savedWinCoords = g.myPos;
+        msgD.t = MOVE;
+        
+        // account for boarder thickness? needs testing on school computers
+        msgD.pos.x = g.myPos.x - g.boarderWidth; 
+        msgD.pos.y = g.myPos.y;
+        
+
+        if (g.isParent) {
+            // send update message to child
+            // printf("sending message to child to move\n");
+            write(g.p2c_pipes[SEND], &msgD, sizeof(msgD));
+        } 
+        // else {
+        //     write(g.c2p_pipes[SEND], &msgD, sizeof(msgD));
+        // }
+    }
+
+
+}
 
 void *getWindowCoords(void* n) {
     Window root = DefaultRootWindow(g.dpy);

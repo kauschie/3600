@@ -218,7 +218,7 @@ int main(int argc, char *argv[], char *envp[]) {
         fflush(stdout);
         #endif
     }
-    printf("                                                   \r"); // clear line from mouse movement print statements
+    printf("                                                   \n"); // clear line from mouse movement print statements
     fflush(stdout);
 
     return 0;
