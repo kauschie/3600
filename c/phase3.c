@@ -89,6 +89,7 @@ struct Global {
     // int my_shmid;
     int isParent; // parent controls all child windows
     bool isShowingBoxes;
+    bool resetBoxy;
     int num_children;
     int p2c_pipes[2];
     int c2p_pipes[2];
@@ -117,15 +118,12 @@ void *readerThread(void* n);
 void init_globals();
 void makePipes();
 void start_child_win();
-void sigusr1_handler(int sig);
+void sigint_handler(int sig);
 int check_winner(void);
 // void randomize_colors();
 void rand_color();
 void createChildWindows(void);
-void floorCeil(struct Box *b);
-// Vec2 box2Screen(const MsgData * bcd);
 Vec2 box2Screen(Vec2 * p);
-Vec2 screen2Box(const MsgData * bcd);
 MsgData checkBoxClick(int mx, int my);
 void configure_notify(XEvent *e);
 void changeBoxyColor(void);
@@ -245,9 +243,9 @@ int main(int argc, char *argv[], char *envp[]) {
     } 
 
     x11_cleanup_xwindows();
-    printf("                                                   \n"); // clear line from mouse movement print statements
-    fflush(stdout);
-    exit(0);
+    // printf("                                                   \n"); // clear line from mouse movement print statements
+    // fflush(stdout);
+    exit(0);    
 
 }
 
@@ -327,22 +325,14 @@ void init_globals()
         g.text_color = 0x00ffffff;
     }
 
-    // block sigusr1 signals to all threads
-    // child msg thread will open signal for sigusr1
-    sigemptyset(&g.mask);
-    sigaddset(&g.mask, SIGUSR1);
-    // pthread_sigmask(SIG_BLOCK, &g.mask, NULL);
-    sigprocmask(SIG_BLOCK, &g.mask, NULL);
 
-
-    g.sa.sa_handler = sigusr1_handler;
+    g.sa.sa_handler = sigint_handler;
     // block all signals while in signal handler
     sigfillset(&g.sa.sa_mask);
     g.sa.sa_flags = 0;
 
-    // register sigaction struct with signal handler
-    if (sigaction(SIGUSR1, &g.sa, NULL) == -1) {
-        perror("sigaction SIGUSR1");
+    if (sigaction(SIGINT, &g.sa, NULL) == -1) {
+        perror("sigaction SIGINT");
         exit(1);
     }
 
@@ -368,8 +358,8 @@ void init_globals()
 }
 
 void init_boxes(void) {
-    static int init = 0;
-
+    static bool init = false;
+    // srand(time(NULL)+3);
     const int XPAD = 10, HEIGHT = 80, XSTART = 12, 
           WIDTH = (int)((g.xres - (XSTART) - (NUM_BOXES*XPAD))/NUM_BOXES), 
           YPAD = 20,
@@ -383,13 +373,19 @@ void init_boxes(void) {
                     // printf("xpos: %d\n",boxes[i].pos.x);
 
         boxes[i].pos.y = YSTART;
-        if (!init) {
-            boxes[i].color = rand() & 0x00ffffff;
-            boxes[i].text_color = rand() & 0x00ffffff;
-            boxes[i].enabled = 1;
-        }
+        boxes[i].enabled = 1;
+        // if (!init) {
+        //     boxes[i].color = rand() & 0x00ffffff;
+        //     boxes[i].text_color = rand() & 0x00ffffff;
+        //     boxes[i].enabled = 1;
+        // }
     }
-    if (!init) init = 1;
+
+    if (!init) {
+        rand_color();
+        init = true;
+    }
+
 }
 
 // void configure_notify(XEvent *e)
@@ -425,6 +421,7 @@ int check_mouse(XEvent *e) {
             // if not already showing boxes in child, show boxes
             if (!g.isParent) {
                 if (!g.isShowingBoxes) {
+                    init_boxes();
                     g.isShowingBoxes = 1;
                     return 0;
                 }
@@ -466,13 +463,13 @@ int check_mouse(XEvent *e) {
                 int n = sum%3;
                 switch (n) {
                     case 0:
-                        printf("oOo You're Moving the Mouse over the Parent oOo\r");
+                        printf("\roOo You're Moving the Mouse over the Parent oOo");
                         break;
                     case 1:
-                        printf("OoO You're Moving the Mouse over the Parent OoO\r");
+                        printf("\rOoO You're Moving the Mouse over the Parent OoO");
                         break;
                     case 2:
-                        printf("ooo You're Moving the Mouse over the Parent ooo\r");
+                        printf("\rooo You're Moving the Mouse over the Parent ooo");
                         break;
                     default:
                         break;
@@ -482,13 +479,13 @@ int check_mouse(XEvent *e) {
                 int n = sum%3;
                 switch (n) {
                     case 0:
-                        printf("oOo You're Moving the Mouse over a Child oOo   \r");
+                        printf("\roOo You're Moving the Mouse over a Child oOo   ");
                         break;
                     case 1:
-                        printf("OoO You're Moving the Mouse over a Child OoO   \r");
+                        printf("\rOoO You're Moving the Mouse over a Child OoO   ");
                         break;
                     case 2:
-                        printf("ooo You're Moving the Mouse over a Child ooo   \r");
+                        printf("\rooo You're Moving the Mouse over a Child ooo   ");
                         break;
                     default:
                         break;
@@ -548,7 +545,10 @@ int check_keys(XEvent *e) {
                     // printf("parent joining thread 0...\n");
                     // pthread_join(g.tid[0], &status);
                     // printf("parent joining thread 1...\n");
+                
                     // pthread_join(g.tid[1], &status); // prevents xtranslatecoord error by waiting for thread to finish first before exiting
+                    printf("                                                   \n"); // clear line from mouse movement print statements
+                    fflush(stdout);
                     exit(0);
 
                 } else {
@@ -563,7 +563,8 @@ int check_keys(XEvent *e) {
                     // pthread_join(g.tid[0], &status);
                     // printf("child joining thread 1...\n");
                     // pthread_join(g.tid[1], &status);    // prevents xtranslatecoord error by waiting for thread to finish first before exiting
-
+                    // printf("                                                   \n"); // clear line from mouse movement print statements
+                    // fflush(stdout);
                     exit(0);
 
                 }
@@ -676,7 +677,7 @@ void render(void) {
     }
 
     if (g.isShowingBoxes) {
-        const int BOARDER = 1;
+        const int BOARDER = 2;
         Vec2 screen_coord;
 
         for (int i = 0; i < NUM_BOXES; i++) {
@@ -699,7 +700,9 @@ void render(void) {
                     XDrawRectangle(g.dpy, g.win, g.gc, 
                                     boxes[i].pos.x-BOARDER, boxes[i].pos.y-BOARDER,
                                     boxes[i].dim.x+(2*BOARDER), boxes[i].dim.y+(2*BOARDER));
-                    XSetForeground(g.dpy, g.gc, boxes[i].text_color);
+                    // XSetForeground(g.dpy, g.gc, boxes[i].text_color);
+                    XSetForeground(g.dpy, g.gc, 0x00);
+
                     x11_setFont(14);
                     XDrawString(g.dpy, g.win, g.gc, 
                                 (boxes[i].pos.x+(boxes[i].dim.x>>1)), (boxes[i].pos.y + (boxes[i].dim.y*0.2)), buf6, strlen(buf6));
@@ -736,8 +739,9 @@ void physics(void)
 
     // bouncy box animation on the child window
     if (g.isParent == 0) {
-        if (!boxy.winner)
+        if (!boxy.winner) {
             boxy.winner = check_winner();
+        } 
 
 
         if (!boxy.winner) {
@@ -868,7 +872,7 @@ void *readerThread(void* n) {
                 }
                 case COLOR_CHANGE: {
                     #ifdef DEBUG
-                    printf("parent got a COLOR CHANGE message from %d\n",msgD.box_index);
+                    printf("parent got a COLOR_CHANGE message \n");
                     #endif // DEBUG
                     boxes[msgD.box_num].color = msgD.box_color;
                     boxes[msgD.box_num].text_color = msgD.text_color;
@@ -909,7 +913,7 @@ void *readerThread(void* n) {
                 }
                 case COLOR_SIG: {
                     #ifdef DEBUG
-                    printf("parent got a COLOR_SIG message from %d\n",msgD.box_index);
+                    printf("parent got a COLOR_SIG message \n");
                     #endif // DEBUG
 
                     g.background_color = msgD.box_color;
@@ -923,17 +927,21 @@ void *readerThread(void* n) {
                     break;
                 }
                 case RESIZE: {
-                    // #ifdef DEBUG
-                    printf("parent got a RESIZE message from\n");
-                    // #endif // DEBUG
+                    #ifdef DEBUG
+                    printf("child got a RESIZE message from parent\n");
+                    #endif // DEBUG
 
                     XWindowChanges changes;
                     changes.x = msgD.pos.x;
                     changes.y = msgD.pos.y + msgD.dim.y;
                     changes.height = msgD.dim.y;
                     changes.width = msgD.dim.x;
+                    g.xres = msgD.dim.x;
+                    g.yres = msgD.dim.y;
                     // XResizeWindow(g.dpy, g.win, msgD.dim.x, msgD.dim.y);
                     XConfigureWindow(g.dpy, g.win, CWX | CWY | CWWidth | CWHeight, &changes);
+                    boxy.winner = false;
+                    
                     break;
                 }
                 default:
@@ -972,64 +980,27 @@ MsgData checkBoxClick(int mx, int my) {
 
 // signal handler for worker thread to 
 // quit while blocking for msgrcv
-void sigusr1_handler(int sig) {
+void sigint_handler(int sig) {
     
-    #ifdef DEBUG
-    char buf[100];
-    strcpy(buf, "in signal handler from pthread_kill\n");
-    write(2, buf, strlen(buf));
-    fflush(stdout);
-    #endif
-    
+    // #ifdef DEBUG
+    if(g.isParent) {
+        char buf[100];
+        printf("\n");
+        strcpy(buf, "Quitting program using SIGINT\nHave a good one professor!!!\n");
+        write(2, buf, strlen(buf));
+        // #endif
+        printf("                                                   \n"); // clear line from mouse movement print statements
+        fflush(stdout);
+    }
+
     exit(0);
 }
-
-// TODO:
-// need to translate between box and screen space coords
-// currently makes incorrect assumptions
-
-void floorCeil(struct Box *b) {
-    if (b->pos.x < 0)
-        b->pos.x = 0;
-    else if (b->pos.x > (g.xres-b->dim.x)) {
-        b->pos.x = g.xres-b->dim.x; 
-    }
-    
-    if (b->pos.y < 0)
-        b->pos.y = 0;
-    else if (b->pos.y > (g.yres-b->dim.y)) {
-        b->pos.y = g.yres-b->dim.y; 
-    }
-}
-
-// comes in as box position, leaves as screen position
-// Vec2 box2Screen(const MsgData * msgD)
-// {
-//     float newX = ((msgD->pos.x)*(g.screenResolution.x))/(g.xres*1.0);
-//     float newY = ((msgD->pos.y)*(g.screenResolution.y))/(g.yres*1.0);
-
-//     Vec2 ret = {(int)newX, (int)newY};
-
-//     return ret;
-// }
 
 Vec2 box2Screen(Vec2 * p)
 {
     Vec2 ret;
     ret.x = g.myPos.x + (p->x);
     ret.y = g.myPos.y + (p->y);
-    return ret;
-}
-
-// comes in as screen position, leaves as box position 
-Vec2 screen2Box(const MsgData * msgD)
-{
-
-    float newX = ((msgD->pos.x)*(g.xres))/(g.screenResolution.x*1.0);
-    float newY = ((msgD->pos.y)*(g.yres))/(g.screenResolution.y*1.0);
-
-    Vec2 ret = {(int)newX, (int)newY};
-
     return ret;
 }
 
@@ -1054,7 +1025,7 @@ void configure_notify(XEvent *e)
     //Update the values of your window dimensions.
     // g.xres = xce.width;
     // g.yres = xce.height;
-    init_boxes();
+    init_boxes();   // repositions boxes after move
     XGetWindowAttributes(g.dpy, root, &g.xwa);
     XTranslateCoordinates(g.dpy, g.win, root, g.xwa.x, g.xwa.y, &g.myPos.x, &g.myPos.y, &child);
 
@@ -1099,7 +1070,9 @@ void configure_notify(XEvent *e)
             msgD.pos = g.myPos;
             msgD.dim.x = g.xres;
             msgD.dim.y = g.yres;
+            #ifdef DEBUG
             printf("parent sending resize msg to child\n");
+            #endif // DEBUG
             write(g.p2c_pipes[SEND], &msgD, sizeof(msgD));
         }
 
