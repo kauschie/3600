@@ -77,6 +77,8 @@ struct Global {
     int scr;
     Vec2 screenResolution;
     XWindowAttributes xwa;
+    Atom wm_delete_window;
+
     int boarderWidth;
     int xres, yres;
 
@@ -128,6 +130,8 @@ MsgData checkBoxClick(int mx, int my);
 void configure_notify(XEvent *e);
 void changeBoxyColor(void);
 void init_boxes(void);
+void init_boxy(void);
+
 
 
 
@@ -170,7 +174,7 @@ int main(int argc, char *argv[], char *envp[]) {
     g.thread_active = 1;
     pthread_create(&g.tid[0], NULL, readerThread, (void*)NULL);
 
-    while (!mdone && !kdone) {
+    while (!mdone && !kdone && g.thread_active) {
         /* Check the event queue */
         while (XPending(g.dpy) && !mdone && !kdone) {
             XNextEvent(g.dpy, &e);
@@ -182,13 +186,6 @@ int main(int argc, char *argv[], char *envp[]) {
         render();
         physics();
         
-
-        // if thread has been deactivated by esc key
-        if (g.thread_active == 0)
-            // pthread_kill(g.tid, SIGUSR1);
-            break;
-
-
         usleep(4000);
     }
 
@@ -199,23 +196,8 @@ int main(int argc, char *argv[], char *envp[]) {
     
     g.thread_active = 0;
 
-    // void* status;
-    // pthread_join(g.tid, &status);
-    #ifdef DEBUG
-    printf("%d finished joining threads\n", g.index);
-    fflush(stdout);
-    #endif
-
-
-    // closePipe();
-    #ifdef DEBUG
-    printf("%d finished closing pipe", g.index);
-    fflush(stdout);
-    #endif
-
     if (g.isParent == 1) {
         // parent
-
         int wStatus;
 
         #ifdef DEBUG
@@ -236,6 +218,7 @@ int main(int argc, char *argv[], char *envp[]) {
 
             g.num_children--;
         }
+
         #ifdef DEBUG
         printf("num_children left: %d\n", g.num_children);
         #endif // DEBUG
@@ -243,8 +226,6 @@ int main(int argc, char *argv[], char *envp[]) {
     } 
 
     x11_cleanup_xwindows();
-    // printf("                                                   \n"); // clear line from mouse movement print statements
-    // fflush(stdout);
     exit(0);    
 
 }
@@ -282,7 +263,7 @@ void x11_init_xwindows(void)
     g.scr = DefaultScreen(g.dpy);
     g.screenResolution.x = DisplayWidth(g.dpy, g.scr);
     g.screenResolution.y = DisplayHeight(g.dpy, g.scr);
-    if(!g.xres || !g.yres) {
+    if(g.isParent) { // child is sent the coords, parent needs them initialized
         g.xres = 400;
         g.yres = 200;
     }
@@ -295,11 +276,14 @@ void x11_init_xwindows(void)
     XSelectInput(g.dpy, g.win, ExposureMask | StructureNotifyMask |
             PointerMotionMask | ButtonPressMask |
             ButtonReleaseMask | KeyPressMask);
-    XSetWindowBorder(g.dpy, g.win, 0);
-
+    XSetWindowBorder(g.dpy, g.win, 0); // force 0 border... however, not all linux themes obey >.<
+    
+    //To intercept user clicking x in title bar.
+    g.wm_delete_window = XInternAtom(g.dpy, "WM_DELETE_WINDOW", False);
+    XSetWMProtocols(g.dpy, g.win, &g.wm_delete_window, 1);
 }
 
-// bitwise ands against mask to return a valid color in range
+// randomizes box colors
 void rand_color() {
     const int MASK = 0x00FFFFFF; // mask of valid bits RGB(255,255,255)
    
@@ -325,10 +309,9 @@ void init_globals()
         g.text_color = 0x00ffffff;
     }
 
-
+    // initialize signal handler
     g.sa.sa_handler = sigint_handler;
-    // block all signals while in signal handler
-    sigfillset(&g.sa.sa_mask);
+    sigfillset(&g.sa.sa_mask);// block all signals while in signal handler
     g.sa.sa_flags = 0;
 
     if (sigaction(SIGINT, &g.sa, NULL) == -1) {
@@ -337,19 +320,8 @@ void init_globals()
     }
 
     init_boxes();
+    init_boxy();
 
-    // init boxy if child
-
-    if (g.isParent == 0) {
-        boxy.dim.x = boxy.dim.y = 80;
-        boxy.pos.x = rand() % (g.xres - boxy.dim.x);
-        boxy.pos.y = rand() % (g.yres - boxy.dim.y);
-        boxy.color = g.text_color;
-        boxy.text_color = g.background_color;
-        boxy.dir.x = (rand() % 2 == 0) ? 1 : -1;
-        boxy.dir.y = (rand() % 2 == 0) ? 1 : -1;
-        boxy.winner = 0;
-    }
 
     
     g.isClickingOnBox = 0;
@@ -374,33 +346,32 @@ void init_boxes(void) {
 
         boxes[i].pos.y = YSTART;
         boxes[i].enabled = 1;
-        // if (!init) {
-        //     boxes[i].color = rand() & 0x00ffffff;
-        //     boxes[i].text_color = rand() & 0x00ffffff;
-        //     boxes[i].enabled = 1;
-        // }
     }
 
     if (!init) {
+        // prevents changing colors when resizing window
+        // as this function is called in that scenario
+        // as well as process startup
         rand_color();
         init = true;
     }
 
 }
 
-// void configure_notify(XEvent *e)
-// {
-//     //ConfigureNotify event is sent by the server if the window
-//     //is resized, moved, etc.
-//     if (e->type != ConfigureNotify)
-//         return;
-//     XConfigureEvent xce = e->xconfigure;
-//     //Update the values of your window dimensions.
-//     g.xres = xce.width;
-//     g.yres = xce.height;
-    
+void init_boxy() {
+    // init boxy if child
 
-// }
+    if (g.isParent == 0) {
+        boxy.dim.x = boxy.dim.y = 80;
+        boxy.pos.x = rand() % (g.xres - boxy.dim.x);
+        boxy.pos.y = rand() % (g.yres - boxy.dim.y);
+        boxy.color = g.text_color;
+        boxy.text_color = g.background_color;
+        boxy.dir.x = (rand() % 2 == 0) ? 1 : -1;
+        boxy.dir.y = (rand() % 2 == 0) ? 1 : -1;
+        boxy.winner = 0;
+    }
+}
 
 int check_mouse(XEvent *e) {
     static int savex = 0;
@@ -412,6 +383,49 @@ int check_mouse(XEvent *e) {
     int mx = e->xbutton.x;
     int my = e->xbutton.y;
 
+    if (e->type == ClientMessage) {
+        // if x button clicked, DO NOT CLOSE WINDOW IMMEDAITELY
+		// instead, overwrite default handler with the following
+	    if ((Atom)e->xclient.data.l[0] == g.wm_delete_window) {
+            MsgData msgD;
+            if (g.isParent) {
+
+                // Kill all child windows
+
+                #ifdef DEBUG
+                printf("sending a kill sig...\n");
+                #endif // DEBUG                    
+                msgD.t = KILL_SIG;
+                for (int i = 0; i < g.num_children; i++) {
+                    msgD.box_num = i;
+
+                    #ifdef DEBUG
+                    printf("sending kill sig to %d on fd: %d", i, g.p2c_pipes[SEND]); fflush(stdout);
+                    #endif // DEBUG
+                    
+                    write(g.p2c_pipes[SEND], &msgD, sizeof(msgD));
+                }
+
+                g.thread_active = 0;
+            
+                printf("\n"); // clear line from mouse movement print statements
+                fflush(stdout);
+                exit(0);
+
+            } else {
+
+                // terminate self and inform parent
+                #ifdef DEBUG
+                printf("quiting child only...\n");
+                #endif // DEBUG  
+                msgD.t = REMOVE_CHILD;
+                write(g.c2p_pipes[SEND], &msgD, sizeof(msgD));
+
+                g.thread_active = 0;
+                exit(0);
+            }
+        }
+    }
     if (e->type != ButtonPress
             && e->type != ButtonRelease
             && e->type != MotionNotify)
@@ -463,13 +477,13 @@ int check_mouse(XEvent *e) {
                 int n = sum%3;
                 switch (n) {
                     case 0:
-                        printf("\roOo You're Moving the Mouse over the Parent oOo");
+                        printf("\rmMm You're Moving the Mouse over the Parent mMm");
                         break;
                     case 1:
-                        printf("\rOoO You're Moving the Mouse over the Parent OoO");
+                        printf("\rMmM You're Moving the Mouse over the Parent MmM");
                         break;
                     case 2:
-                        printf("\rooo You're Moving the Mouse over the Parent ooo");
+                        printf("\rmmm You're Moving the Mouse over the Parent mmm");
                         break;
                     default:
                         break;
@@ -479,13 +493,13 @@ int check_mouse(XEvent *e) {
                 int n = sum%3;
                 switch (n) {
                     case 0:
-                        printf("\roOo You're Moving the Mouse over a Child oOo   ");
+                        printf("\rcCc You're Moving the Mouse over a Child cCc   ");
                         break;
                     case 1:
-                        printf("\rOoO You're Moving the Mouse over a Child OoO   ");
+                        printf("\rCcC You're Moving the Mouse over a Child CcC   ");
                         break;
                     case 2:
-                        printf("\rooo You're Moving the Mouse over a Child ooo   ");
+                        printf("\rccc You're Moving the Mouse over a Child ccc   ");
                         break;
                     default:
                         break;
@@ -509,6 +523,7 @@ int check_mouse(XEvent *e) {
 int check_keys(XEvent *e) {
     int key;
 
+    
     if (e->type != KeyPress && e->type != KeyRelease)
         return 0;
     key = XLookupKeysym(&e->xkey, 0);
@@ -542,12 +557,8 @@ int check_keys(XEvent *e) {
                     }
 
                     g.thread_active = 0;
-                    // printf("parent joining thread 0...\n");
-                    // pthread_join(g.tid[0], &status);
-                    // printf("parent joining thread 1...\n");
                 
-                    // pthread_join(g.tid[1], &status); // prevents xtranslatecoord error by waiting for thread to finish first before exiting
-                    printf("                                                   \n"); // clear line from mouse movement print statements
+                    printf("\n"); // clear line from mouse movement print statements
                     fflush(stdout);
                     exit(0);
 
@@ -559,12 +570,6 @@ int check_keys(XEvent *e) {
                     write(g.c2p_pipes[SEND], &msgD, sizeof(msgD));
 
                     g.thread_active = 0;
-                    // printf("child joining thread 0...\n");
-                    // pthread_join(g.tid[0], &status);
-                    // printf("child joining thread 1...\n");
-                    // pthread_join(g.tid[1], &status);    // prevents xtranslatecoord error by waiting for thread to finish first before exiting
-                    // printf("                                                   \n"); // clear line from mouse movement print statements
-                    // fflush(stdout);
                     exit(0);
 
                 }
@@ -938,9 +943,11 @@ void *readerThread(void* n) {
                     changes.width = msgD.dim.x;
                     g.xres = msgD.dim.x;
                     g.yres = msgD.dim.y;
-                    // XResizeWindow(g.dpy, g.win, msgD.dim.x, msgD.dim.y);
+                    // could also do this if you didn't want to adjust position 
+                    // XResizeWindow(g.dpy, g.win, msgD.dim.x, msgD.dim.y); 
                     XConfigureWindow(g.dpy, g.win, CWX | CWY | CWWidth | CWHeight, &changes);
-                    boxy.winner = false;
+                    init_boxes();   // repositions boxes after move
+                    if (boxy.winner) init_boxy(); // reset boxy if he won already
                     
                     break;
                 }
@@ -966,6 +973,7 @@ MsgData checkBoxClick(int mx, int my) {
 
     // iterate over all colored boxes on parent
     for (int i = 0; i < NUM_BOXES; i++) {
+        // valid box click
         if (((mx > boxes[i].pos.x) && (mx < (boxes[i].pos.x + boxes[i].dim.x)))
                 && ((my > boxes[i].pos.y) && (my < (boxes[i].pos.y + boxes[i].dim.y)))) {
             m.box_color = boxes[i].color;
@@ -989,7 +997,7 @@ void sigint_handler(int sig) {
         strcpy(buf, "Quitting program using SIGINT\nHave a good one professor!!!\n");
         write(2, buf, strlen(buf));
         // #endif
-        printf("                                                   \n"); // clear line from mouse movement print statements
+        printf("\n"); 
         fflush(stdout);
     }
 
@@ -1017,15 +1025,8 @@ void configure_notify(XEvent *e)
     if (e->type != ConfigureNotify)
         return;
 
-
-    // printf("got a configNotify Event\n"); fflush(stdout);
     XConfigureEvent xce = e->xconfigure;
-
-    g.boarderWidth = xce.border_width;
-    //Update the values of your window dimensions.
-    // g.xres = xce.width;
-    // g.yres = xce.height;
-    init_boxes();   // repositions boxes after move
+    
     XGetWindowAttributes(g.dpy, root, &g.xwa);
     XTranslateCoordinates(g.dpy, g.win, root, g.xwa.x, g.xwa.y, &g.myPos.x, &g.myPos.y, &child);
 
@@ -1075,6 +1076,8 @@ void configure_notify(XEvent *e)
             #endif // DEBUG
             write(g.p2c_pipes[SEND], &msgD, sizeof(msgD));
         }
+
+        init_boxes();   // repositions boxes after screen resize
 
     }
         
