@@ -25,7 +25,7 @@ class: Operating Systems cmps3600
 // #define BOX_DEBUG
 
 #ifndef NUM_BOXES
-#define NUM_BOXES 20
+#define NUM_BOXES 7
 #endif //  NUM_BOXES
 
 #ifndef MAX_CHILDREN
@@ -434,13 +434,13 @@ int check_mouse(XEvent *e) {
                 int n = sum%3;
                 switch (n) {
                     case 0:
-                        printf("oOo You're Moving the Mouse over the Parent oOo\r");
+                        printf("\rmMm You're Moving the Mouse over the Parent mMm");
                         break;
                     case 1:
-                        printf("OoO You're Moving the Mouse over the Parent OoO\r");
+                        printf("\rMmM You're Moving the Mouse over the Parent MmM");
                         break;
                     case 2:
-                        printf("ooo You're Moving the Mouse over the Parent ooo\r");
+                        printf("\rmmm You're Moving the Mouse over the Parent mmm");
                         break;
                     default:
                         break;
@@ -450,13 +450,13 @@ int check_mouse(XEvent *e) {
                 int n = sum%3;
                 switch (n) {
                     case 0:
-                        printf("oOo You're Moving the Mouse over a Child oOo   \r");
+                        printf("\rcCc You're Moving the Mouse over a Child cCc   ");
                         break;
                     case 1:
-                        printf("OoO You're Moving the Mouse over a Child OoO   \r");
+                        printf("\rCcC You're Moving the Mouse over a Child CcC   ");
                         break;
                     case 2:
-                        printf("ooo You're Moving the Mouse over a Child ooo   \r");
+                        printf("\rccc You're Moving the Mouse over a Child ccc   ");
                         break;
                     default:
                         break;
