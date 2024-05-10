@@ -1,15 +1,10 @@
 /*
  *
 Name: Michael Kausch
-Assignment: Project
+Assignment: Project Phase 3
 date: 3/7/24
 professor: Gordon
 class: Operating Systems cmps3600
-
-TODO:
-
-Convert to pipes
-Refactor a bit
 
 */
 
@@ -595,6 +590,8 @@ int check_keys(XEvent *e) {
                         MsgData msgD;
                         msgD.t = MOVE;
                         msgD.pos = g.myPos;
+                        msgD.dim.x = g.xres;
+                        msgD.dim.y = g.yres;
                         write(g.p2c_pipes[SEND], &msgD, sizeof(msgD));
                         // printf("g.num_children: %d\n",g.num_children);
                         // fflush(stdout);
@@ -869,6 +866,8 @@ void *readerThread(void* n) {
                         MsgData msgD;
                         msgD.t = MOVE;
                         msgD.pos = g.myPos;
+                        msgD.dim.x = g.xres;
+                        msgD.dim.y = g.yres;
                         write(g.p2c_pipes[SEND], &msgD, sizeof(msgD));
                         // printf("g.num_children: %d\n",g.num_children);
                         // fflush(stdout);
@@ -927,7 +926,8 @@ void *readerThread(void* n) {
                 }
                 case MOVE: {
                 // child - move above where parent is
-                    Vec2 newCoords = {msgD.pos.x, msgD.pos.y+g.yres};
+                    Vec2 parentDim = msgD.dim;
+                    Vec2 newCoords = {msgD.pos.x, msgD.pos.y+parentDim.y};
                     XMoveWindow(g.dpy, g.win, newCoords.x, newCoords.y);
                     break;
                 }
@@ -1047,8 +1047,10 @@ void configure_notify(XEvent *e)
             msgD.t = MOVE;
             
             // account for boarder thickness? needs testing on school computers
-            msgD.pos.x = g.myPos.x - g.boarderWidth; 
+            msgD.pos.x = g.myPos.x; 
             msgD.pos.y = g.myPos.y;
+            msgD.dim.x = g.xres;
+            msgD.dim.y = g.yres;
         
             // send update message to child
             #ifdef DEBUG
@@ -1078,6 +1080,9 @@ void configure_notify(XEvent *e)
         }
 
         init_boxes();   // repositions boxes after screen resize
+        if (!g.isParent && boxy.winner) {
+            init_boxy();
+        }
 
     }
         
