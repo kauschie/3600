@@ -16,13 +16,8 @@
 
 /* create a static mutex and a static condition variable - safest method */
 
-#ifndef DEBUG
-#define DEBUG 0
-#endif
-
-#ifndef NUM_THREADS
-#define NUM_THREADS 20
-#endif
+#define DEBUG 0 
+#define NUM_THREADS 5
 
 /* For safe condition variable usage, must use a boolean predicate and  
  * a mutex with the condition.                  
@@ -34,23 +29,15 @@ pthread_cond_t cond[NUM_THREADS];
 pthread_mutex_t mutex[NUM_THREADS];
 int fibnumber = 1;
 
-void *workerThread(void * thread_num);
-int fib(int n);
+void *workerThread(void * thread_num); 
 
 int main(int argc, char **argv)
 {
-	if (argc==2) {
-		fibnumber = atoi(argv[1]);
-	} else {
-		printf("Usage: %s [delay] \n", argv[0]);
-		if (argc > 2) {
-			perror("bad program usage");
-			exit(0xDEADC0DE);
-		}
-	}
+	if (argc==2) 
+		fibnum = atoi(argv[1]);
 	
 	int rc=0;
-	// int i;
+	int i;
 	pthread_t tids[NUM_THREADS];
 
 	if (DEBUG)
@@ -58,7 +45,7 @@ int main(int argc, char **argv)
 	
 
 	// init vars
-	for (int i = NUM_THREADS-1; i >= 0; i--) {
+	for (int i = 0; i < NUM_THREADS; i++) {
 		// init its condition variable
 		if (pthread_cond_init(&cond[i], NULL) != 0) {
 		perror("pthread_cond_init() error");
@@ -66,9 +53,9 @@ int main(int argc, char **argv)
 		}
 		
 		// lock it initially
-		if (pthread_mutex_init(&mutex[i], NULL) != 0) {
-		perror("pthread_mutex_init() error");
-		exit(1);
+		if (pthread_mutex_lock(&mutex[i]) != 0) {
+			perror("pthread_mutex_lock error");
+			exit(3);
 		}
 
 		work2do[i] = 0;
@@ -81,32 +68,28 @@ int main(int argc, char **argv)
 			printf("Thread %d created.\n",i);
 		}
 
-
 	}
 
 	time_t T;
 	time(&T);
-	printf("parent writes time: %s", ctime(&T));
+	printf("parent writes time: %s", myNum, ctime(&T));
 	
-	// start first thread
+	
 	if ((rc=pthread_mutex_lock(&mutex[0])!=0))
 		perror("pthread_mutex_lock_neighbor");
 
-	work2do[0]++;
-
 	//signal neighbor
-	if ((rc=pthread_cond_signal(&cond[0])!=0))
+	if ((rc=pthread_cond_signal(&cond[myNum+1])!=0))
 		perror("pthread_cond_signal");
 
-	
+	work2do[0]++;
+
 	// unlock neighbor's mutex
-	if ((rc = pthread_mutex_unlock(&mutex[0])!=0))
+	if ((rc = pthread_mutex_unlock(&mutex[myNum+1])!=0))
 		perror("mutex_unlock_neighbor()");
 
-
-	// join all threads before finishing
 	for (int i = 0; i < NUM_THREADS; i++) {
-		pthread_join(tids[i], NULL);
+		pthread_join(tid[i], NULL);
 	}
 
 	exit(0);
@@ -117,7 +100,6 @@ int main(int argc, char **argv)
 void *workerThread(void *thread_num)
 {
 	int myNum = (int)(long)thread_num;
-	int rc = 0;
 
 	time_t T;
 
@@ -138,15 +120,9 @@ void *workerThread(void *thread_num)
 
 	/* critical code */
 	if (DEBUG)
-		printf("thread critical code %d\n",myNum);
+		printf("producer critical code %d\n",i);
 	time(&T);
 	printf("thread %d writes time: %s", myNum, ctime(&T));
-	
-	if (DEBUG && fibnumber > 1) {
-		printf("fib used and calculated to be %d\n", fib(fibnumber));
-	} else {
-		fib(fibnumber);
-	}
 
 	pthread_mutex_unlock(&mutex[myNum]);
 
@@ -155,13 +131,13 @@ void *workerThread(void *thread_num)
 		if ((rc=pthread_mutex_lock(&mutex[myNum+1])!=0))
 			perror("pthread_mutex_lock_neighbor");
 
-		// inc neighbor's flag
-		work2do[myNum+1]++;
 
 		//signal neighbor
 		if ((rc=pthread_cond_signal(&cond[myNum+1])!=0))
 			perror("pthread_cond_signal");
 
+		// inc neighbor's flag
+		work2do[myNum+1]++;
 
 		// unlock neighbor's mutex
 		if ((rc = pthread_mutex_unlock(&mutex[myNum+1])!=0))
@@ -175,8 +151,6 @@ void *workerThread(void *thread_num)
 
 int fib(int n)
 {
-	// if(DEBUG)
-		// printf("fib called with arg %d\n",n);
 	if (n == 1 || n == 2)
 		return 1;
 	return fib(n-1) + fib(n-2);
